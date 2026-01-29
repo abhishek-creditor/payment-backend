@@ -1,0 +1,46 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+}
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  tenantId  String
+  keyHash   String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+}
+
+model Payment {
+  id        String   @id @default(uuid())
+  tenantId  String
+  amount    Int
+  currency  String
+  status    String
+  createdAt DateTime @default(now())
+}
+
+model IdempotencyKey {
+  id            String   @id @default(uuid())
+  tenantId      String
+  key           String
+  requestHash   String
+  responseBody  Json
+  createdAt     DateTime @default(now())
+
+  @@unique([tenantId, key])
+}
+
+
