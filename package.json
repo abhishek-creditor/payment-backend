@@ -13,7 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@prisma/client": "^7.3.0",
+    "@prisma/client": "^6.19.2",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "eslint": "^9.39.2",
@@ -21,7 +21,7 @@
     "helmet": "^8.1.0",
     "morgan": "^1.10.1",
     "nodemon": "^3.1.11",
-    "prisma": "^7.3.0",
+    "prisma": "^6.19.2",
     "uuid": "^13.0.0"
   }
 }
