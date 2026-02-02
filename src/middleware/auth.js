@@ -1,7 +1,5 @@
 const crypto = require("crypto");
-const { PrismaClient } = require("@prisma/client");
-
-const prisma = new PrismaClient();
+const prisma = require("../utils/prisma");
 
 module.exports = async function authenticate(req, res, next) {
   const apiKey = req.header("x-api-key");

@@ -7,6 +7,124 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+
+model Product {
+  id       String  @id @default(uuid())
+  name     String
+  code     String  @unique // lms, ebook, ppt, etc.
+  isActive Boolean @default(true)
+
+  apiKeys ApiKey[]
+  users   ProductUser[]
+  orders  Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ApiKey {
+  id        String  @id @default(uuid())
+  productId String
+  key       String  @unique
+  isActive  Boolean @default(true)
+
+  product Product @relation(fields: [productId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model ProductUser {
+  id             String  @id @default(uuid())
+  productId      String
+  externalUserId String // userId from calling product
+  email          String?
+
+  product Product @relation(fields: [productId], references: [id])
+  orders  Order[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([productId, externalUserId])
+}
+
+model Order {
+  id            String @id @default(uuid())
+  productId     String
+  productUserId String
+
+  referenceId String // order id from product system
+  amount      Int // smallest currency unit (cents / paise)
+  currency    String      @default("USD")
+  status      OrderStatus @default(CREATED)
+
+  product     Product     @relation(fields: [productId], references: [id])
+  productUser ProductUser @relation(fields: [productUserId], references: [id])
+
+  items    OrderItem[]
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, referenceId])
+}
+
+model OrderItem {
+  id      String @id @default(uuid())
+  orderId String
+
+  name     String
+  sku      String?
+  quantity Int     @default(1)
+  price    Int // per unit price (smallest currency unit)
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+model Payment {
+  id      String @id @default(uuid())
+  orderId String
+
+  tilledPaymentId String?
+  method          PaymentMethod
+  status          PaymentStatus
+  amount          Int
+
+  rawRequest  Json?
+  rawResponse Json?
+
+  order   Order    @relation(fields: [orderId], references: [id])
+  refunds Refund[]
+
+  createdAt DateTime @default(now())
+}
+
+model Refund {
+  id        String @id @default(uuid())
+  paymentId String
+
+  tilledRefundId String?
+  amount         Int
+  status         RefundStatus
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model WebhookEvent {
+  id        String  @id @default(uuid())
+  eventType String
+  tilledId  String
+  payload   Json
+  processed Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([eventType, tilledId])
+}
+
 enum OrderStatus {
   CREATED
   PENDING
@@ -33,124 +151,4 @@ enum RefundStatus {
   PENDING
   SUCCEEDED
   FAILED
-}
-
-// ==============================
-// MODELS
-// ==============================
-
-model Product {
-  id        String   @id @default(uuid())
-  name      String
-  code      String   @unique // lms, ebook, ppt, etc.
-  isActive  Boolean  @default(true)
-
-  apiKeys   ApiKey[]
-  users     ProductUser[]
-  orders    Order[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model ApiKey {
-  id        String   @id @default(uuid())
-  productId String
-  key       String   @unique
-  isActive  Boolean  @default(true)
-
-  product   Product  @relation(fields: [productId], references: [id])
-
-  createdAt DateTime @default(now())
-}
-
-model ProductUser {
-  id              String   @id @default(uuid())
-  productId       String
-  externalUserId  String   // userId from calling product
-  email           String?
-
-  product         Product  @relation(fields: [productId], references: [id])
-  orders          Order[]
-
-  createdAt       DateTime @default(now())
-
-  @@unique([productId, externalUserId])
-}
-
-model Order {
-  id            String      @id @default(uuid())
-  productId     String
-  productUserId String
-
-  referenceId   String      // order id from product system
-  amount        Int         // smallest currency unit (cents / paise)
-  currency      String      @default("USD")
-  status        OrderStatus @default(CREATED)
-
-  product       Product     @relation(fields: [productId], references: [id])
-  productUser   ProductUser @relation(fields: [productUserId], references: [id])
-
-  items         OrderItem[]
-  payments      Payment[]
-
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-
-  @@unique([productId, referenceId])
-}
-
-model OrderItem {
-  id        String @id @default(uuid())
-  orderId  String
-
-  name      String
-  sku       String?
-  quantity  Int    @default(1)
-  price     Int    // per unit price (smallest currency unit)
-
-  order     Order  @relation(fields: [orderId], references: [id])
-}
-
-model Payment {
-  id              String         @id @default(uuid())
-  orderId         String
-
-  tilledPaymentId String?
-  method          PaymentMethod
-  status          PaymentStatus
-  amount          Int
-
-  rawRequest      Json?
-  rawResponse     Json?
-
-  order           Order          @relation(fields: [orderId], references: [id])
-  refunds         Refund[]
-
-  createdAt       DateTime       @default(now())
-}
-
-model Refund {
-  id              String        @id @default(uuid())
-  paymentId       String
-
-  tilledRefundId  String?
-  amount          Int
-  status          RefundStatus
-
-  payment         Payment       @relation(fields: [paymentId], references: [id])
-
-  createdAt       DateTime      @default(now())
-}
-
-model WebhookEvent {
-  id         String   @id @default(uuid())
-  eventType  String
-  tilledId   String
-  payload    Json
-  processed  Boolean  @default(false)
-
-  createdAt  DateTime @default(now())
-
-  @@unique([eventType, tilledId])
 }

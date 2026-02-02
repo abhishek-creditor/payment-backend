@@ -1,5 +1,4 @@
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require("../utils/prisma");
 
 exports.createPayment = async (tenantId, data) => {
   return prisma.$transaction(async (tx) => {

@@ -1,6 +1,5 @@
 const crypto = require("crypto");
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require("../utils/prisma");
 
 module.exports = async function idempotency(req, res, next) {
   const key = req.header("Idempotency-Key");
