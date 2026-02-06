@@ -7,31 +7,83 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
-
 model Product {
   id       String  @id @default(uuid())
   name     String
   code     String  @unique // lms, ebook, ppt, etc.
   isActive Boolean @default(true)
 
-  apiKeys ApiKey[]
-  users   ProductUser[]
-  orders  Order[]
+  apiKeys     ApiKey[]
+  users       ProductUser[]
+  orders      Order[]
+  requestLogs ApiRequestLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model ApiKey {
-  id        String  @id @default(uuid())
+  id        String @id @default(uuid())
   productId String
-  key       String  @unique
-  isActive  Boolean @default(true)
 
-  product Product @relation(fields: [productId], references: [id])
+  keyName     String // e.g., "production-key", "staging-key"
+  keyHash     String @unique // bcrypt hash of the actual key
+  keyPrefix   String // e.g., "pk_live_lms_" for quick lookup
+  environment String @default("production") // production, staging, development
+
+  permissions     String[] // ["charge", "refund", "read"]
+  rateLimitPerMin Int      @default(100)
+
+  isActive   Boolean   @default(true)
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+
+  product     Product            @relation(fields: [productId], references: [id])
+  requestLogs ApiRequestLog[]
+  rateLimits  RateLimitTracker[]
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([keyPrefix])
+  @@index([productId])
+}
+
+model RateLimitTracker {
+  id       String @id @default(uuid())
+  apiKeyId String
+
+  windowStart  DateTime // Start of the current minute window
+  requestCount Int      @default(0)
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@unique([apiKeyId, windowStart])
+  @@index([windowStart])
+}
+
+model ApiRequestLog {
+  id        String  @id @default(uuid())
+  apiKeyId  String?
+  productId String?
+
+  endpoint       String
+  method         String
+  statusCode     Int?
+  ipAddress      String?
+  userAgent      String?
+  requestBody    Json?
+  responseTimeMs Int?
+  errorMessage   String?
+
+  apiKey  ApiKey?  @relation(fields: [apiKeyId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([apiKeyId])
+  @@index([productId])
+  @@index([createdAt])
 }
 
 model ProductUser {
@@ -53,10 +105,12 @@ model Order {
   productId     String
   productUserId String
 
-  referenceId String // order id from product system
-  amount      Int // smallest currency unit (cents / paise)
-  currency    String      @default("USD")
-  status      OrderStatus @default(CREATED)
+  referenceId    String // order id from product system
+  idempotencyKey String? @unique // prevent duplicate charges
+
+  amount   Int // smallest currency unit (cents / paise)
+  currency String      @default("USD")
+  status   OrderStatus @default(CREATED)
 
   product     Product     @relation(fields: [productId], references: [id])
   productUser ProductUser @relation(fields: [productUserId], references: [id])
@@ -68,6 +122,7 @@ model Order {
   updatedAt DateTime @updatedAt
 
   @@unique([productId, referenceId])
+  @@index([idempotencyKey])
 }
 
 model OrderItem {
@@ -79,7 +134,7 @@ model OrderItem {
   quantity Int     @default(1)
   price    Int // per unit price (smallest currency unit)
 
-  order Order @relation(fields: [orderId], references: [id])
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model Payment {
@@ -98,6 +153,8 @@ model Payment {
   refunds Refund[]
 
   createdAt DateTime @default(now())
+
+  @@index([tilledPaymentId])
 }
 
 model Refund {
@@ -107,10 +164,13 @@ model Refund {
   tilledRefundId String?
   amount         Int
   status         RefundStatus
+  reason         String?
 
   payment Payment @relation(fields: [paymentId], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@index([tilledRefundId])
 }
 
 model WebhookEvent {
@@ -120,9 +180,11 @@ model WebhookEvent {
   payload   Json
   processed Boolean @default(false)
 
-  createdAt DateTime @default(now())
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
 
   @@unique([eventType, tilledId])
+  @@index([processed])
 }
 
 enum OrderStatus {
