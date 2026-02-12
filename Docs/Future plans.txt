@@ -1,0 +1,21 @@
+IMPORTANT Security Note
+The API key management routes (/api/keys) are currently UNPROTECTED. This means anyone can create, delete, or manage API keys. You need to add admin authentication before going to production.
+
+Option 1: Simple Admin API Key (Quick Fix)
+Create a separate admin authentication middleware:
+File: src/middleware/adminAuth.js
+
+```
+javascriptmodule.exports = function adminAuth(req, res, next) {
+  const adminKey = req.header("x-admin-key");
+  
+  // Store this in environment variable
+  if (adminKey !== process.env.ADMIN_API_KEY) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  
+  next();
+};
+```
+Update .env:
+bashADMIN_API_KEY=your-super-secret-admin-key-here
