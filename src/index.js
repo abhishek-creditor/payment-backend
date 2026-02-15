@@ -3,35 +3,7 @@ const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".en
 require("dotenv").config({ path: path.resolve(__dirname, "../", envFile) });
 
 const prisma = require("./utils/prisma");
-
 const app = require("./app");
-
-app.get("/", (req, res) => {
-  res.send("Payment service is running");
-});
-
-
-// Health check endpoint for Render
-app.get("/health", async (req, res) => {
-  try {
-    // Check database connection
-    await prisma.$queryRaw`SELECT 1`;
-    
-    res.status(200).json({ 
-      status: 'ok', 
-      database: 'connected',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  } catch (error) {
-    res.status(503).json({ 
-      status: 'error', 
-      database: 'disconnected',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
 
 // Database connectivity check on startup
 async function checkDatabaseConnection() {

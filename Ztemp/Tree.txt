@@ -1,0 +1,42 @@
+tree -I "node_modules" > outt.txt
+
+.
+├── Docs
+│   ├── API key management.md
+│   ├── API key usage example.md
+│   └── ZTree.txt
+├── outt.txt
+├── out.txt
+├── package.json
+├── package-lock.json
+├── prisma
+│   ├── migrations
+│   │   ├── 20260202061638_init_payments
+│   │   │   └── migration.sql
+│   │   └── migration_lock.toml
+│   └── schema.prisma
+├── prisma.config.ts
+├── src
+│   ├── app.js
+│   ├── controllers
+│   │   ├── apiKey.controller.js
+│   │   └── payments.controller.js
+│   ├── dao
+│   ├── index.js
+│   ├── middleware
+│   │   ├── auth.js
+│   │   ├── idempotency.js
+│   │   └── requirePermissions.js
+│   ├── routes
+│   │   ├── apiKey.routes.js
+│   │   └── payments.routes.js
+│   ├── services
+│   │   ├── apiKey.service.js
+│   │   └── payments.service.js
+│   ├── utils
+│   │   └── prisma.js
+│   └── workers
+└── Ztemp
+    └── Tree
+
+13 directories, 24 files
