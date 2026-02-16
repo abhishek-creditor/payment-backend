@@ -1,4 +1,7 @@
 const prisma = require("../utils/prisma");
+const productUserDAO = require("../dao/productUser.dao");
+const orderDAO = require("../dao/order.dao");
+const paymentDAO = require("../dao/payment.dao");
 
 /**
  * Create a new payment/order
@@ -22,32 +25,11 @@ exports.createPayment = async (productId, data) => {
     }
 
     // 1. Create or get product user
-    const productUser = await tx.productUser.upsert({
-      where: {
-        productId_externalUserId: {
-          productId,
-          externalUserId
-        }
-      },
-      update: {
-        email: email || undefined
-      },
-      create: {
-        productId,
-        externalUserId,
-        email
-      }
-    });
+    const productUser = await productUserDAO.upsertProductUser(tx, productId, externalUserId, email);
 
     // 2. Check for duplicate using idempotency key
     if (idempotencyKey) {
-      const existingOrder = await tx.order.findUnique({
-        where: { idempotencyKey },
-        include: {
-          items: true,
-          payments: true
-        }
-      });
+      const existingOrder = await orderDAO.getOrderByIdempotencyKey(tx, idempotencyKey);
 
       if (existingOrder) {
         // Return existing order instead of creating duplicate
@@ -56,46 +38,25 @@ exports.createPayment = async (productId, data) => {
     }
 
     // 3. Create order with items
-    const order = await tx.order.create({
-      data: {
-        productId,
-        productUserId: productUser.id,
-        referenceId,
-        idempotencyKey,
-        amount,
-        currency,
-        status: "CREATED",
-        items: {
-          create: items.map(item => ({
-            name: item.name,
-            sku: item.sku || null,
-            quantity: item.quantity || 1,
-            price: item.price
-          }))
-        }
-      },
-      include: {
-        items: true,
-        productUser: {
-          select: {
-            id: true,
-            externalUserId: true,
-            email: true
-          }
-        }
-      }
+    const order = await orderDAO.createOrder(tx, {
+      productId,
+      productUserId: productUser.id,
+      referenceId,
+      idempotencyKey,
+      amount,
+      currency,
+      status: "CREATED",
+      items
     });
 
     // 4. Create initial payment record (if needed)
     // Note: You might want to create this when actually charging
     // For now, we'll create it in INITIATED status
-    const payment = await tx.payment.create({
-      data: {
-        orderId: order.id,
-        method: paymentMethod,
-        status: "INITIATED",
-        amount: amount
-      }
+    const payment = await paymentDAO.createPayment(tx, {
+      orderId: order.id,
+      method: paymentMethod,
+      status: "INITIATED",
+      amount: amount
     });
 
     // 5. Return order with payment info
@@ -110,103 +71,29 @@ exports.createPayment = async (productId, data) => {
  * Get all payments/orders for a product
  */
 exports.getPayments = async (productId, queryParams = {}) => {
-  const { 
-    page = 1, 
-    limit = 10, 
-    status,
-    startDate,
-    endDate
-  } = queryParams;
-
-  const where = { productId };
-
-  // Add status filter if provided
-  if (status) {
-    where.status = status;
-  }
-
-  // Add date range filter if provided
-  if (startDate || endDate) {
-    where.createdAt = {};
-    if (startDate) where.createdAt.gte = new Date(startDate);
-    if (endDate) where.createdAt.lte = new Date(endDate);
-  }
-
-  const [orders, total] = await Promise.all([
-    prisma.order.findMany({
-      where,
-      include: {
-        items: true,
-        payments: {
-          include: {
-            refunds: true
-          }
-        },
-        productUser: {
-          select: {
-            externalUserId: true,
-            email: true
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit)
-    }),
-    prisma.order.count({ where })
-  ]);
-
-  return {
-    orders,
-    pagination: {
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit))
-    }
-  };
+  return orderDAO.getOrders(null, {
+    productId,
+    ...queryParams
+  });
 };
 
 /**
  * Get a specific payment/order by ID
  */
 exports.getPaymentById = async (productId, orderId) => {
-  const order = await prisma.order.findFirst({
-    where: {
-      id: orderId,
-      productId // Ensure it belongs to this product
-    },
-    include: {
-      items: true,
-      payments: {
-        include: {
-          refunds: true
-        }
-      },
-      productUser: {
-        select: {
-          externalUserId: true,
-          email: true
-        }
-      }
-    }
+  return orderDAO.getOrderByIdAndProduct(null, orderId, productId, {
+    items: true,
+    payments: true,
+    refunds: true,
+    productUser: true
   });
-
-  return order;
 };
 
 /**
  * Update order status
  */
 exports.updateOrderStatus = async (orderId, status) => {
-  return prisma.order.update({
-    where: { id: orderId },
-    data: { status },
-    include: {
-      items: true,
-      payments: true
-    }
-  });
+  return orderDAO.updateOrderStatus(null, orderId, status);
 };
 
 /**
@@ -217,9 +104,10 @@ exports.processCharge = async (orderId, chargeData) => {
     const { tilledPaymentId, rawRequest, rawResponse } = chargeData;
 
     // Get the order
-    const order = await tx.order.findUnique({
-      where: { id: orderId },
-      include: { payments: true }
+    const order = await orderDAO.getOrderById(tx, orderId, {
+      payments: true,
+      items: false,
+      productUser: false
     });
 
     if (!order) {
@@ -234,32 +122,24 @@ exports.processCharge = async (orderId, chargeData) => {
     let payment = order.payments.find(p => p.status === "INITIATED");
 
     if (!payment) {
-      payment = await tx.payment.create({
-        data: {
-          orderId: order.id,
-          method: "CARD",
-          status: "PROCESSING",
-          amount: order.amount
-        }
+      payment = await paymentDAO.createPayment(tx, {
+        orderId: order.id,
+        method: "CARD",
+        status: "PROCESSING",
+        amount: order.amount
       });
     }
 
     // Update payment with Tilled info
-    const updatedPayment = await tx.payment.update({
-      where: { id: payment.id },
-      data: {
-        tilledPaymentId,
-        status: "PROCESSING",
-        rawRequest,
-        rawResponse
-      }
+    const updatedPayment = await paymentDAO.updatePayment(tx, payment.id, {
+      tilledPaymentId,
+      status: "PROCESSING",
+      rawRequest,
+      rawResponse
     });
 
     // Update order status
-    await tx.order.update({
-      where: { id: orderId },
-      data: { status: "PENDING" }
-    });
+    await orderDAO.updateOrder(tx, orderId, { status: "PENDING" });
 
     return updatedPayment;
   });
@@ -271,22 +151,13 @@ exports.processCharge = async (orderId, chargeData) => {
 exports.markPaymentSucceeded = async (paymentId, tilledData = {}) => {
   return prisma.$transaction(async (tx) => {
     // Update payment
-    const payment = await tx.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: "SUCCEEDED",
-        rawResponse: tilledData
-      },
-      include: {
-        order: true
-      }
+    const payment = await paymentDAO.updatePayment(tx, paymentId, {
+      status: "SUCCEEDED",
+      rawResponse: tilledData
     });
 
     // Update order status
-    await tx.order.update({
-      where: { id: payment.orderId },
-      data: { status: "PAID" }
-    });
+    await orderDAO.updateOrder(tx, payment.orderId, { status: "PAID" });
 
     return payment;
   });
@@ -298,21 +169,12 @@ exports.markPaymentSucceeded = async (paymentId, tilledData = {}) => {
 exports.markPaymentFailed = async (paymentId, errorMessage) => {
   return prisma.$transaction(async (tx) => {
     // Update payment
-    const payment = await tx.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: "FAILED"
-      },
-      include: {
-        order: true
-      }
+    const payment = await paymentDAO.updatePayment(tx, paymentId, {
+      status: "FAILED"
     });
 
     // Update order status
-    await tx.order.update({
-      where: { id: payment.orderId },
-      data: { status: "FAILED" }
-    });
+    await orderDAO.updateOrder(tx, payment.orderId, { status: "FAILED" });
 
     return payment;
   });
@@ -324,20 +186,14 @@ exports.markPaymentFailed = async (paymentId, errorMessage) => {
 exports.refundPayment = async (productId, orderId, refundData) => {
   return prisma.$transaction(async (tx) => {
     const { amount, reason, tilledRefundId } = refundData;
+    const refundDAO = require("../dao/refund.dao");
 
     // Get the order with payments
-    const order = await tx.order.findFirst({
-      where: {
-        id: orderId,
-        productId
-      },
-      include: {
-        payments: {
-          include: {
-            refunds: true
-          }
-        }
-      }
+    const order = await orderDAO.getOrderByIdAndProduct(tx, orderId, productId, {
+      items: false,
+      payments: true,
+      refunds: true,
+      productUser: false
     });
 
     if (!order) {
@@ -369,23 +225,18 @@ exports.refundPayment = async (productId, orderId, refundData) => {
     }
 
     // Create refund record
-    const refund = await tx.refund.create({
-      data: {
-        paymentId: successfulPayment.id,
-        tilledRefundId,
-        amount,
-        reason,
-        status: "PENDING"
-      }
+    const refund = await refundDAO.createRefund(tx, {
+      paymentId: successfulPayment.id,
+      tilledRefundId,
+      amount,
+      reason,
+      status: "PENDING"
     });
 
     // Update order status if full refund
     const newTotalRefunded = totalRefunded + amount;
     if (newTotalRefunded === successfulPayment.amount) {
-      await tx.order.update({
-        where: { id: orderId },
-        data: { status: "REFUNDED" }
-      });
+      await orderDAO.updateOrder(tx, orderId, { status: "REFUNDED" });
     }
 
     return refund;
@@ -396,36 +247,13 @@ exports.refundPayment = async (productId, orderId, refundData) => {
  * Update refund status
  */
 exports.updateRefundStatus = async (refundId, status) => {
-  return prisma.refund.update({
-    where: { id: refundId },
-    data: { status },
-    include: {
-      payment: {
-        include: {
-          order: true
-        }
-      }
-    }
-  });
+  const refundDAO = require("../dao/refund.dao");
+  return refundDAO.updateRefundStatus(null, refundId, status);
 };
 
 /**
  * Get order by reference ID (from external system)
  */
 exports.getOrderByReferenceId = async (productId, referenceId) => {
-  return prisma.order.findFirst({
-    where: {
-      productId,
-      referenceId
-    },
-    include: {
-      items: true,
-      payments: {
-        include: {
-          refunds: true
-        }
-      },
-      productUser: true
-    }
-  });
+  return orderDAO.getOrderByReferenceId(null, productId, referenceId);
 };

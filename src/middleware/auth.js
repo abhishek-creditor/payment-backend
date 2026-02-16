@@ -1,5 +1,7 @@
 const bcrypt = require("bcryptjs");
 const prisma = require("../utils/prisma");
+const apiKeyDAO = require("../dao/apiKey.dao");
+const rateLimitTrackerDAO = require("../dao/rateLimitTracker.dao");
 
 module.exports = async function authenticate(req, res, next) {
   try {
@@ -13,15 +15,7 @@ module.exports = async function authenticate(req, res, next) {
     const prefix = apiKey.substring(0, apiKey.lastIndexOf("_") + 1);
 
     // Find key by prefix first (faster lookup)
-    const key = await prisma.apiKey.findFirst({
-      where: {
-        keyPrefix: prefix,
-        isActive: true,
-      },
-      include: {
-        product: true,
-      },
-    });
+    const key = await apiKeyDAO.getApiKeyByPrefix(null, prefix, true);
 
     if (!key) {
       return res.status(403).json({ error: "Invalid API key" });
@@ -50,10 +44,8 @@ module.exports = async function authenticate(req, res, next) {
     }
 
     // Update last used timestamp (async, don't wait)
-    prisma.apiKey.update({
-      where: { id: key.id },
-      data: { lastUsedAt: new Date() },
-    }).catch(err => console.error("Failed to update lastUsedAt:", err));
+    apiKeyDAO.updateLastUsedAt(null, key.id, new Date())
+      .catch(err => console.error("Failed to update lastUsedAt:", err));
 
     // Attach to request object
     req.apiKey = key;
@@ -75,24 +67,7 @@ async function checkRateLimit(apiKeyId, rateLimitPerMin) {
 
   try {
     // Use upsert to atomically increment or create the counter
-    const tracker = await prisma.rateLimitTracker.upsert({
-      where: {
-        apiKeyId_windowStart: {
-          apiKeyId,
-          windowStart,
-        },
-      },
-      update: {
-        requestCount: {
-          increment: 1,
-        },
-      },
-      create: {
-        apiKeyId,
-        windowStart,
-        requestCount: 1,
-      },
-    });
+    const tracker = await rateLimitTrackerDAO.upsertTracker(null, apiKeyId, windowStart);
 
     // Check if limit exceeded
     return tracker.requestCount > rateLimitPerMin;
