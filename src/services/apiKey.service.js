@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const prisma = require("../utils/prisma");
+const productDAO = require("../dao/product.dao");
+const apiKeyDAO = require("../dao/apiKey.dao");
+const rateLimitTrackerDAO = require("../dao/rateLimitTracker.dao");
+const apiRequestLogDAO = require("../dao/apiRequestLog.dao");
 
 class ApiKeyService {
   /**
@@ -17,9 +20,7 @@ class ApiKeyService {
     expiresInDays = null,
   }) {
     // Validate product exists
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-    });
+    const product = await productDAO.getProductById(null, productId);
 
     if (!product) {
       throw new Error("Product not found");
@@ -39,21 +40,16 @@ class ApiKeyService {
       : null;
 
     // Save to database
-    const savedKey = await prisma.apiKey.create({
-      data: {
-        productId,
-        keyName,
-        keyHash,
-        keyPrefix: prefix,
-        environment,
-        permissions,
-        rateLimitPerMin,
-        expiresAt,
-        isActive: true,
-      },
-      include: {
-        product: true,
-      },
+    const savedKey = await apiKeyDAO.createApiKey(null, {
+      productId,
+      keyName,
+      keyHash,
+      keyPrefix: prefix,
+      environment,
+      permissions,
+      rateLimitPerMin,
+      expiresAt,
+      isActive: true
     });
 
     // Return the plain text key (ONLY TIME IT'S VISIBLE!)
@@ -79,13 +75,7 @@ class ApiKeyService {
    * List all API keys for a product (without showing the actual keys)
    */
   async listApiKeys(productId) {
-    const keys = await prisma.apiKey.findMany({
-      where: { productId },
-      include: {
-        product: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const keys = await apiKeyDAO.getApiKeysByProductId(null, productId);
 
     return keys.map((key) => ({
       id: key.id,
@@ -110,12 +100,7 @@ class ApiKeyService {
    * Get details of a specific API key
    */
   async getApiKey(keyId) {
-    const key = await prisma.apiKey.findUnique({
-      where: { id: keyId },
-      include: {
-        product: true,
-      },
-    });
+    const key = await apiKeyDAO.getApiKeyById(null, keyId);
 
     if (!key) {
       throw new Error("API key not found");
@@ -158,13 +143,7 @@ class ApiKeyService {
       (key) => allowedUpdates[key] === undefined && delete allowedUpdates[key]
     );
 
-    const updatedKey = await prisma.apiKey.update({
-      where: { id: keyId },
-      data: allowedUpdates,
-      include: {
-        product: true,
-      },
-    });
+    const updatedKey = await apiKeyDAO.updateApiKey(null, keyId, allowedUpdates);
 
     return {
       id: updatedKey.id,
@@ -190,10 +169,7 @@ class ApiKeyService {
    * Regenerate an API key (creates new key, keeps same settings)
    */
   async regenerateApiKey(keyId) {
-    const existingKey = await prisma.apiKey.findUnique({
-      where: { id: keyId },
-      include: { product: true },
-    });
+    const existingKey = await apiKeyDAO.getApiKeyById(null, keyId);
 
     if (!existingKey) {
       throw new Error("API key not found");
@@ -207,21 +183,13 @@ class ApiKeyService {
     const keyHash = await bcrypt.hash(apiKey, 10);
 
     // Update the key
-    const updatedKey = await prisma.apiKey.update({
-      where: { id: keyId },
-      data: {
-        keyHash,
-        lastUsedAt: null, // Reset usage tracking
-      },
-      include: {
-        product: true,
-      },
+    const updatedKey = await apiKeyDAO.updateApiKey(null, keyId, {
+      keyHash,
+      lastUsedAt: null // Reset usage tracking
     });
 
     // Clear rate limit trackers for this key
-    await prisma.rateLimitTracker.deleteMany({
-      where: { apiKeyId: keyId },
-    });
+    await rateLimitTrackerDAO.deleteTrackersByApiKeyId(null, keyId);
 
     return {
       id: updatedKey.id,
@@ -245,10 +213,7 @@ class ApiKeyService {
    * Deactivate an API key (soft delete)
    */
   async deactivateApiKey(keyId) {
-    const deactivatedKey = await prisma.apiKey.update({
-      where: { id: keyId },
-      data: { isActive: false },
-    });
+    const deactivatedKey = await apiKeyDAO.updateApiKey(null, keyId, { isActive: false });
 
     return {
       id: deactivatedKey.id,
@@ -262,9 +227,7 @@ class ApiKeyService {
    */
   async deleteApiKey(keyId) {
     // This will cascade delete related records due to schema relations
-    await prisma.apiKey.delete({
-      where: { id: keyId },
-    });
+    await apiKeyDAO.deleteApiKey(null, keyId);
 
     return { success: true, message: "API key deleted successfully" };
   }
@@ -277,25 +240,15 @@ class ApiKeyService {
     startDate.setDate(startDate.getDate() - days);
 
     const [requestCount, recentLogs] = await Promise.all([
-      prisma.apiRequestLog.count({
-        where: {
-          apiKeyId: keyId,
-          createdAt: { gte: startDate },
-        },
-      }),
-      prisma.apiRequestLog.findMany({
-        where: {
-          apiKeyId: keyId,
-          createdAt: { gte: startDate },
-        },
+      apiRequestLogDAO.countLogsByApiKeyId(null, keyId, startDate),
+      apiRequestLogDAO.getLogsByApiKeyId(null, keyId, startDate, {
+        take: 100,
         select: {
           statusCode: true,
           createdAt: true,
-          endpoint: true,
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      }),
+          endpoint: true
+        }
+      })
     ]);
 
     // Calculate success rate
@@ -320,11 +273,7 @@ class ApiKeyService {
   async cleanupOldRateLimits() {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    const result = await prisma.rateLimitTracker.deleteMany({
-      where: {
-        windowStart: { lt: oneHourAgo },
-      },
-    });
+    const result = await rateLimitTrackerDAO.deleteOldTrackers(null, oneHourAgo);
 
     return {
       deleted: result.count,
