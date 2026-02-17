@@ -1,0 +1,4 @@
+  model ApiRequestLog: 
+    -> apiKey  ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull) 
+    ->   Column apiKeyId  String?
+    ->   apiKeyId column ko setNull nahi karna hai for Unique and fast searching. 
