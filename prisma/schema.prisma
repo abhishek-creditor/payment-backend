@@ -172,6 +172,7 @@ model Payment {
   @@index([status])  // 👈 ADD: Fast filtering by status
 }
 
+
 model Refund {
   id        String @id @default(uuid())
   paymentId String
