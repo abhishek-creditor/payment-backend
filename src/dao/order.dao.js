@@ -9,14 +9,14 @@ class OrderDAO {
    */
   async createOrder(tx, orderData) {
     const client = tx || prisma;
-    
+
     return client.order.create({
       data: {
         productId: orderData.productId,
         productUserId: orderData.productUserId,
         referenceId: orderData.referenceId,
         idempotencyKey: orderData.idempotencyKey,
-        amount: orderData.amount,
+        amount: parseInt(orderData.amount),
         currency: orderData.currency,
         status: orderData.status || "CREATED",
         items: {
@@ -50,7 +50,7 @@ class OrderDAO {
    */
   async getOrderById(tx, orderId, includeOptions = {}) {
     const client = tx || prisma;
-    
+
     const include = {
       items: includeOptions.items !== false,
       payments: includeOptions.payments !== false ? {
@@ -82,7 +82,7 @@ class OrderDAO {
    */
   async getOrderByIdAndProduct(tx, orderId, productId, includeOptions = {}) {
     const client = tx || prisma;
-    
+
     const include = {
       items: includeOptions.items !== false,
       payments: includeOptions.payments !== false ? {
@@ -115,7 +115,7 @@ class OrderDAO {
    */
   async getOrderByIdempotencyKey(tx, idempotencyKey) {
     const client = tx || prisma;
-    
+
     return client.order.findUnique({
       where: { idempotencyKey },
       include: {
@@ -134,7 +134,7 @@ class OrderDAO {
    */
   async getOrderByReferenceId(tx, productId, referenceId) {
     const client = tx || prisma;
-    
+
     return client.order.findFirst({
       where: {
         productId,
@@ -160,7 +160,7 @@ class OrderDAO {
    */
   async getOrders(tx, filters = {}) {
     const client = tx || prisma;
-    
+
     const {
       productId,
       page = 1,
@@ -226,7 +226,7 @@ class OrderDAO {
    */
   async updateOrderStatus(tx, orderId, status) {
     const client = tx || prisma;
-    
+
     return client.order.update({
       where: { id: orderId },
       data: { status },
@@ -246,7 +246,7 @@ class OrderDAO {
    */
   async updateOrder(tx, orderId, data) {
     const client = tx || prisma;
-    
+
     return client.order.update({
       where: { id: orderId },
       data

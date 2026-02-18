@@ -13,14 +13,16 @@ exports.createPayment = async (productId, data) => {
       email,
       referenceId,
       idempotencyKey,
-      amount,
+      amount: rawAmount,
       currency = "USD",
       items = [],
       paymentMethod = "CARD"
     } = data;
 
+    const amount = parseInt(rawAmount);
+
     // Validate required fields
-    if (!externalUserId || !referenceId || !amount) {
+    if (!externalUserId || !referenceId || isNaN(amount)) {
       throw new Error("Missing required fields: externalUserId, referenceId, amount");
     }
 
