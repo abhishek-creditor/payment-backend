@@ -98,13 +98,18 @@ model ProductUser {
   externalUserId String // userId from calling product
   email          String?
 
+  tilledCustomerId String? @unique
+  tilledCustomerCreatedAt DateTime?
+
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)  // 👈 CHANGE: Add onDelete
   orders  Order[]
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([productId, externalUserId])
   @@index([email])  // 👈 ADD: Fast lookup by email
+  @@index([tilledCustomerId])
 }
 
 model Order {
