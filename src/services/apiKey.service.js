@@ -6,6 +6,45 @@ const rateLimitTrackerDAO = require("../dao/rateLimitTracker.dao");
 const apiRequestLogDAO = require("../dao/apiRequestLog.dao");
 
 class ApiKeyService {
+
+/**
+ * Get all API keys (no pagination) (dashboard listing)
+ */
+async getAllApiKeys(queryParams) {
+  const productId = queryParams.productId || undefined;
+  const isActive =
+    queryParams.isActive !== undefined
+      ? queryParams.isActive === "true"
+      : undefined;
+
+  const keys = await apiKeyDAO.getAllApiKeys(null, {
+    productId,
+    isActive,
+  });
+
+  const formattedKeys = keys.map((key) => ({
+    id: key.id,
+    productId: key.productId,
+    keyName: key.keyName,
+    permissions: key.permissions,
+    rateLimitPerMin: key.rateLimitPerMin,
+    isActive: key.isActive,
+    expiresAt: key.expiresAt,
+    lastUsedAt: key.lastUsedAt,
+    createdAt: key.createdAt,
+    updatedAt: key.updatedAt,
+    product: key.product,
+  }));
+
+  return {
+    total: formattedKeys.length,
+    data: formattedKeys,
+  };
+}
+
+// closed the getAllApiKeys method
+
+
   /**
    * Generate a new API key
    * @param {Object} params - Key generation parameters

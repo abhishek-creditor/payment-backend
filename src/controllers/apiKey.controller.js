@@ -1,6 +1,29 @@
 const apiKeyService = require("../services/apiKey.service");
 
 class ApiKeyController {
+
+  /**
+ * GET /api/api-keys
+ * Dashboard listing of API keys
+ */
+async getAllKeys(req, res) {
+  try {
+    const result = await apiKeyService.getAllApiKeys(req.query);
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("Error fetching API keys:", error);
+    return res.status(500).json({
+      error: "Failed to fetch API keys",
+    });
+  }
+}
+// closed the getAllKeys method. 
+
+
   /**
    * POST /api/keys
    * Generate a new API key

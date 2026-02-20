@@ -7,6 +7,43 @@ class ApiKeyDAO {
    * @param {Object} keyData - API key data
    * @returns {Promise<Object>} API Key
    */
+
+
+  /**
+ * Get all API keys with pagination & filtering (no - pagination)
+ */
+
+async getAllApiKeys(tx, filters = {}) {
+  const client = tx || prisma;
+
+  const { productId, isActive } = filters;
+
+  const where = {};
+
+  if (productId) where.productId = productId;
+  if (typeof isActive === "boolean") where.isActive = isActive;
+
+  const keys = await client.apiKey.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    include: {
+      product: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        },
+      },
+    },
+  });
+
+  return keys;
+}
+
+// Closed the getAllApiKeys method
+
+
+
   async createApiKey(tx, keyData) {
     const client = tx || prisma;
     
