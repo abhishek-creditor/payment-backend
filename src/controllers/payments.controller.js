@@ -31,7 +31,8 @@ exports.getPayments = async (req, res) => {
     
     res.status(200).json({
       success: true,
-      data: payments
+      data: payments, 
+      "message": "Payments API work separate successfully" // my change for testing purpose only.
     });
   } catch (error) {
     console.error("Error fetching payments:", error);

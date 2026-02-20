@@ -40,16 +40,26 @@ exports.createPayment = async (productId, data) => {
     }
 
     // 3. Create order with items
-    const order = await orderDAO.createOrder(tx, {
-      productId,
-      productUserId: productUser.id,
-      referenceId,
-      idempotencyKey,
-      amount,
-      currency,
-      status: "CREATED",
-      items
-    });
+    let order;
+    try {
+      order = await orderDAO.createOrder(tx, {
+        productId,
+        productUserId: productUser.id,
+        referenceId,
+        idempotencyKey,
+        amount,
+        currency,
+        status: "CREATED",
+        items
+      });
+    } catch (e) {
+      // If two concurrent requests race, the DB unique constraint wins.
+      if (idempotencyKey && e && e.code === "P2002") {
+        const existingOrder = await orderDAO.getOrderByIdempotencyKey(tx, idempotencyKey);
+        if (existingOrder) return existingOrder;
+      }
+      throw e;
+    }
 
     // 4. Create initial payment record (if needed)
     // Note: You might want to create this when actually charging

@@ -15,11 +15,14 @@ model Product {
 
   apiKeys     ApiKey[]
   users       ProductUser[]
+  plans         ProductPlan[]
+  subscriptions Subscription[]
   orders      Order[]
   requestLogs ApiRequestLog[]
+  idempotencyKeys IdempotencyKey[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt@default(now())
   
   @@index([code])  // 👈 ADD: Fast lookup by code
   @@index([isActive])  // 👈 ADD: Fast filtering of active products
@@ -44,9 +47,10 @@ model ApiKey {
   product     Product            @relation(fields: [productId], references: [id], onDelete: Cascade)  // 👈 CHANGE: Add onDelete
   requestLogs ApiRequestLog[]
   rateLimits  RateLimitTracker[]
+  idempotencyKeys IdempotencyKey[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt@default(now())
 
   @@index([keyPrefix])
   @@index([productId])
@@ -98,19 +102,28 @@ model ProductUser {
   externalUserId String // userId from calling product
   email          String?
 
+  tilledCustomerId String? 
+  tilledCustomerCreatedAt DateTime?
+
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)  // 👈 CHANGE: Add onDelete
+  subscriptions Subscription[]
   orders  Order[]
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt@default(now())
 
   @@unique([productId, externalUserId])
+  @@index([productId])
   @@index([email])  // 👈 ADD: Fast lookup by email
+  @@index([tilledCustomerId])
 }
 
 model Order {
   id            String @id @default(uuid())
   productId     String
   productUserId String
+  planId        String?
+  subscriptionId String?
 
   referenceId    String // order id from product system
   idempotencyKey String? @unique // prevent duplicate charges
@@ -119,14 +132,18 @@ model Order {
   currency String      @default("USD")
   status   OrderStatus @default(CREATED)
 
+  metadata Json?
+
   product     Product     @relation(fields: [productId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if orders exist
   productUser ProductUser @relation(fields: [productUserId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if orders exist
+  plan        ProductPlan? @relation(fields: [planId], references: [id], onDelete: Restrict)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   items    OrderItem[]
   payments Payment[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt@default(now())
 
   @@unique([productId, referenceId])
   @@index([idempotencyKey])
@@ -166,6 +183,7 @@ model Payment {
   refunds Refund[]
 
   createdAt DateTime @default(now())
+  updatedAt DateTime? @updatedAt@default(now())
 
   @@index([tilledPaymentId])
   @@index([orderId])  // 👈 ADD: Fast lookup by order
@@ -206,6 +224,93 @@ model WebhookEvent {
   @@index([createdAt])  
 }
 
+model IdempotencyKey {
+  id        String @id @default(uuid())
+  productId String
+  apiKeyId  String?
+
+  key         String
+  method      String
+  path        String
+  requestHash String
+
+  status             IdempotencyStatus @default(IN_PROGRESS)
+  responseStatusCode Int?
+  responseBody       Json?
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt@default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  apiKey  ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
+  @@unique([productId, key, method, path])
+  @@index([productId, createdAt])
+  @@index([expiresAt])
+}
+
+model ProductPlan {
+  id        String @id @default(uuid())
+  productId String
+  code        String
+  name        String
+  description String?
+  price    Int
+  currency String @default("USD")
+  billingType BillingType
+
+  interval      BillingInterval?
+  intervalCount Int?
+  isActive Boolean @default(true)
+
+  metadata Json?
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  subscriptions Subscription[]
+  orders        Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt@default(now())
+
+  @@unique([productId, code])
+  @@index([productId])
+  @@index([billingType])
+}
+model Subscription {
+  id String @id @default(uuid())
+
+  productId     String
+  productUserId String
+  planId        String
+
+  tilledSubscriptionId String? @unique
+
+  status SubscriptionStatus
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  cancelAtPeriodEnd Boolean  @default(false)
+  cancelledAt       DateTime?
+
+  metadata Json?
+
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productUser ProductUser @relation(fields: [productUserId], references: [id], onDelete: Cascade)
+  plan        ProductPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt@default(now())
+
+  @@index([productId])
+  @@index([productUserId])
+  @@index([status])
+}
+
 enum OrderStatus {
   CREATED
   PENDING
@@ -214,6 +319,11 @@ enum OrderStatus {
   CANCELLED
   REFUNDED
   PARTIALLY_REFUNDED  
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
 }
 
 enum PaymentStatus {
@@ -235,4 +345,22 @@ enum RefundStatus {
   SUCCEEDED
   FAILED
   CANCELLED
+}
+
+enum BillingType {
+  ONE_TIME
+  RECURRING
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  PAST_DUE
+  TRIAL
 }

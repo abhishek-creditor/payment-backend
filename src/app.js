@@ -15,6 +15,7 @@ app.use(morgan("combined"));
 // Import routes
 const paymentsRoutes = require("./routes/payments.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
+const productsRoutes = require("./routes/products.routes");
 
 // Import middleware
 const authenticate = require("./middleware/auth");
@@ -50,11 +51,12 @@ app.get("/health", async (req, res) => {
 });
 
 // ============================================
-// ADMIN ROUTES (for managing API keys)
+// ADMIN ROUTES (for managing products & API keys)
 // ============================================
 // TODO: Add admin authentication middleware here in production
 // Example: app.use("/api/keys", adminAuth, apiKeyRoutes);
 // For now, these routes are unprotected - SECURE THESE IN PRODUCTION!
+app.use("/api/products", productsRoutes);
 app.use("/api/keys", apiKeyRoutes);
 
 // ============================================

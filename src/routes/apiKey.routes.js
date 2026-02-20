@@ -13,6 +13,11 @@ const apiKeyController = require("../controllers/apiKey.controller");
  */
 router.post("/", apiKeyController.create);
 
+// mari banai hui api key list karne ke liye route
+
+router.get("/getAllkeys", apiKeyController.getAllKeys);
+
+
 /**
  * @route   GET /api/keys?productId=xxx
  * @desc    List all API keys for a product
