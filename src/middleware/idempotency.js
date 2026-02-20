@@ -1,6 +1,15 @@
 const crypto = require("crypto");
 const prisma = require("../utils/prisma");
 
+const IDEMPOTENCY_TTL_SECONDS = parseInt(
+  process.env.IDEMPOTENCY_TTL_SECONDS || "86400",
+  10,
+); // 24h
+const IN_PROGRESS_TIMEOUT_SECONDS = parseInt(
+  process.env.IDEMPOTENCY_IN_PROGRESS_TIMEOUT || "60",
+  10,
+); // 60s
+
 module.exports = async function idempotency(req, res, next) {
   const key = req.header("Idempotency-Key");
   if (!key) return next();
@@ -8,82 +17,135 @@ module.exports = async function idempotency(req, res, next) {
   const productId = req.productId;
   if (!productId) return next();
 
-  const method = req.method;
-  const path = (req.originalUrl || req.url || "").split("?")[0];
+  const method = req.method.toUpperCase();
+
+  // Normalize path (remove query + trailing slash)
+  let path = (req.originalUrl || req.url || "").split("?")[0];
+  if (path.endsWith("/") && path.length > 1) {
+    path = path.slice(0, -1);
+  }
+
   const requestHash = crypto
     .createHash("sha256")
-    .update(JSON.stringify({ body: req.body ?? null, query: req.query ?? null }))
+    .update(
+      JSON.stringify({ body: req.body ?? null, query: req.query ?? null }),
+    )
     .digest("hex");
 
-  const ttlSeconds = Number.parseInt(process.env.IDEMPOTENCY_TTL_SECONDS || "86400", 10);
-  const expiresAt = new Date(Date.now() + (Number.isFinite(ttlSeconds) ? ttlSeconds : 86400) * 1000);
-
-  // Make idempotency key available to downstream handlers/services
-  if (req.body && typeof req.body === "object" && req.body.idempotencyKey == null) {
-    req.body.idempotencyKey = key;
-  }
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000);
 
   const uniqueWhere = {
-    productId_key_method_path: { productId, key, method, path }
+    productId_key_method_path: {
+      productId,
+      key,
+      method,
+      path,
+    },
   };
 
-  // Cleanup of expired record (best-effort)
-  try {
-    await prisma.idempotencyKey.deleteMany({
-      where: {
-        productId,
-        key,
-        method,
-        path,
-        expiresAt: { lt: new Date() }
-      }
-    });
-  } catch (e) {
-    // ignore cleanup errors
-  }
-
   let record;
+
   try {
-    record = await prisma.idempotencyKey.create({
-      data: {
-        productId,
-        apiKeyId: req.apiKey?.id || null,
-        key,
-        method,
-        path,
-        requestHash,
-        status: "IN_PROGRESS",
-        expiresAt
-      }
+    record = await prisma.idempotencyKey.findUnique({
+      where: uniqueWhere,
     });
-  } catch (e) {
-    // Likely unique constraint conflict -> fetch existing
-    record = await prisma.idempotencyKey.findUnique({ where: uniqueWhere });
+  } catch (err) {
+    return res.status(500).json({ error: "Idempotency lookup failed" });
   }
 
+  // ================================
+  // EXISTING RECORD HANDLING
+  // ================================
   if (record) {
-    if (record.requestHash !== requestHash) {
-      return res.status(409).json({
-        error: "Idempotency-Key reuse with different request payload",
-        message: "Use a new Idempotency-Key for a different request."
+    // Expired → treat as new
+    if (record.expiresAt && record.expiresAt < now) {
+      try {
+        await prisma.idempotencyKey.delete({ where: { id: record.id } });
+      } catch (e) {}
+      record = null;
+    } else {
+      // Payload mismatch
+      if (record.requestHash !== requestHash) {
+        return res.status(409).json({
+          error: "Idempotency-Key reused with different request payload",
+          message: "Use a new Idempotency-Key for a different request.",
+        });
+      }
+
+      // Completed → replay response
+      if (record.status === "COMPLETED" && record.responseBody != null) {
+        res.set("Idempotency-Replayed", "true");
+        return res
+          .status(record.responseStatusCode || 200)
+          .json(record.responseBody);
+      }
+
+      // In Progress → check if stale
+      if (record.status === "IN_PROGRESS") {
+        const ageSeconds =
+          (now.getTime() - new Date(record.createdAt).getTime()) / 1000;
+
+        if (ageSeconds < IN_PROGRESS_TIMEOUT_SECONDS) {
+          return res.status(409).json({
+            error: "Request with this Idempotency-Key is still processing",
+            message: "Retry after a short delay.",
+          });
+        }
+
+        // Stale lock → allow retry by deleting
+        try {
+          await prisma.idempotencyKey.delete({ where: { id: record.id } });
+          record = null;
+        } catch (e) {
+          return res.status(409).json({
+            error: "Request is currently locked. Please retry shortly.",
+          });
+        }
+      }
+    }
+  }
+
+  // ================================
+  // CREATE NEW RECORD
+  // ================================
+  if (!record) {
+    try {
+      record = await prisma.idempotencyKey.create({
+        data: {
+          productId,
+          apiKeyId: req.apiKey?.id || null,
+          key,
+          method,
+          path,
+          requestHash,
+          status: "IN_PROGRESS",
+          expiresAt,
+        },
       });
-    }
+    } catch (err) {
+      // Unique conflict fallback
+      record = await prisma.idempotencyKey.findUnique({
+        where: uniqueWhere,
+      });
 
-    if (record.status === "COMPLETED" && record.responseBody != null) {
-      return res
-        .status(record.responseStatusCode || 200)
-        .json(record.responseBody);
-    }
+      if (record?.status === "COMPLETED") {
+        return res
+          .status(record.responseStatusCode || 200)
+          .json(record.responseBody);
+      }
 
-    if (record.status === "IN_PROGRESS" && record.createdAt) {
       return res.status(409).json({
-        error: "Request with this Idempotency-Key is still processing",
-        message: "Retry with the same Idempotency-Key after a short delay."
+        error: "Duplicate request detected",
       });
     }
   }
 
-  const recordId = record?.id;
+  const recordId = record.id;
+
+  // ================================
+  // RESPONSE INTERCEPT
+  // ================================
   const originalJson = res.json.bind(res);
   const originalSend = res.send.bind(res);
   const originalStatus = res.status.bind(res);
@@ -96,8 +158,8 @@ module.exports = async function idempotency(req, res, next) {
   async function finalize(body) {
     const statusCode = res.__idemStatusCode ?? res.statusCode ?? 200;
 
-    // Don't cache 5xx responses to allow retries
-    if (!recordId || statusCode >= 500) return;
+    // Do not cache 5xx responses
+    if (statusCode >= 500) return;
 
     try {
       await prisma.idempotencyKey.update({
@@ -105,34 +167,34 @@ module.exports = async function idempotency(req, res, next) {
         data: {
           status: "COMPLETED",
           responseStatusCode: statusCode,
-          responseBody: body
-        }
+          responseBody: body,
+        },
       });
-    } catch (e) {
-      // If we fail to store, do not block response; record will eventually expire
-      console.error("[idempotency] Failed to finalize record", recordId, e);
+    } catch (err) {
+      console.error("[Idempotency] Finalize failed:", err);
     }
   }
 
-  res.json = (body) => {
-    finalize(body).finally(() => {});
+  res.json = async (body) => { 
+    res.set("Idempotency-Replayed", "false");
+    await finalize(body);
     return originalJson(body);
   };
 
-  res.send = (body) => {
-    // Only cache JSON-like responses; otherwise just pass through.
+  res.send = async (body) => {
     let parsed = null;
-    if (typeof body === "object" && body !== null) parsed = body;
-    else if (typeof body === "string") {
+    if (typeof body === "object" && body !== null) {
+      parsed = body;
+    } else if (typeof body === "string") {
       try {
         parsed = JSON.parse(body);
-      } catch (e) {
-        parsed = null;
-      }
+      } catch {}
     }
+
     if (parsed != null) {
-      finalize(parsed).finally(() => {});
+      await finalize(parsed);
     }
+
     return originalSend(body);
   };
 

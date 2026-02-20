@@ -126,7 +126,7 @@ model Order {
   subscriptionId String?
 
   referenceId    String // order id from product system
-  idempotencyKey String? @unique // prevent duplicate charges
+  // idempotencyKey String? @unique // prevent duplicate charges // Ek idempotency key se sirf ek hi order create ho.
 
   amount   Int // smallest currency unit (cents / paise)
   currency String      @default("USD")
@@ -146,7 +146,7 @@ model Order {
   updatedAt DateTime @updatedAt@default(now())
 
   @@unique([productId, referenceId])
-  @@index([idempotencyKey])
+  // @@index([idempotencyKey])
   @@index([status])  // 👈 ADD: Fast filtering by status
   @@index([productId, status])  // 👈 ADD: Composite index for common query
   @@index([createdAt])  // 👈 ADD: Fast date range queries
@@ -190,6 +190,7 @@ model Payment {
   @@index([status])  // 👈 ADD: Fast filtering by status
 }
 
+
 model Refund {
   id        String @id @default(uuid())
   paymentId String
@@ -229,10 +230,10 @@ model IdempotencyKey {
   productId String
   apiKeyId  String?
 
-  key         String
+  key         String // Frontend se aane wala unique idempotency key
   method      String
   path        String
-  requestHash String
+  requestHash String // Agar user same key use kare but body change kare to detect karne ke liye
 
   status             IdempotencyStatus @default(IN_PROGRESS)
   responseStatusCode Int?
@@ -245,7 +246,7 @@ model IdempotencyKey {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   apiKey  ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
 
-  @@unique([productId, key, method, path])
+  @@unique([productId, key, method, path]) // Same product ke liye same key + method + path dubara insert nahi hoga.
   @@index([productId, createdAt])
   @@index([expiresAt])
 }

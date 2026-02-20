@@ -19,7 +19,7 @@ const controller = require("../controllers/payments.controller");
 router.post(
   "/",
   requirePermissions(["charge"]),
-  idempotency,
+  idempotency, // middleware to handle idempotency based on Idempotency-Key header
   controller.createPayment
 );
 
@@ -49,7 +49,7 @@ router.get(
  * @route   POST /api/payments/:id/refund
  * @desc    Refund a payment
  * @access  Requires API key with "refund" permission
- */
+ */ 
 router.post(
   "/:id/refund",
   requirePermissions(["refund"]),

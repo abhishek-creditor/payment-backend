@@ -5,6 +5,7 @@ const paymentDAO = require("../dao/payment.dao");
 
 /**
  * Create a new payment/order
+ * Idempotency is fully handled by middleware
  */
 exports.createPayment = async (productId, data) => {
   return prisma.$transaction(async (tx) => {
@@ -12,7 +13,6 @@ exports.createPayment = async (productId, data) => {
       externalUserId,
       email,
       referenceId,
-      idempotencyKey,
       amount,
       currency = "USD",
       items = [],
@@ -21,55 +21,38 @@ exports.createPayment = async (productId, data) => {
 
     // Validate required fields
     if (!externalUserId || !referenceId || !amount) {
-      throw new Error("Missing required fields: externalUserId, referenceId, amount");
+      throw new Error(
+        "Missing required fields: externalUserId, referenceId, amount"
+      );
     }
 
-    // 1. Create or get product user
-    const productUser = await productUserDAO.upsertProductUser(tx, productId, externalUserId, email);
+    // 1️⃣ Create or get product user
+    const productUser = await productUserDAO.upsertProductUser(
+      tx,
+      productId,
+      externalUserId,
+      email
+    );
 
-    // 2. Check for duplicate using idempotency key
-    if (idempotencyKey) {
-      const existingOrder = await orderDAO.getOrderByIdempotencyKey(tx, idempotencyKey);
+    // 2️⃣ Create order (NO idempotency logic here)
+    const order = await orderDAO.createOrder(tx, {
+      productId,
+      productUserId: productUser.id,
+      referenceId,
+      amount,
+      currency,
+      status: "CREATED",
+      items
+    });
 
-      if (existingOrder) {
-        // Return existing order instead of creating duplicate
-        return existingOrder;
-      }
-    }
-
-    // 3. Create order with items
-    let order;
-    try {
-      order = await orderDAO.createOrder(tx, {
-        productId,
-        productUserId: productUser.id,
-        referenceId,
-        idempotencyKey,
-        amount,
-        currency,
-        status: "CREATED",
-        items
-      });
-    } catch (e) {
-      // If two concurrent requests race, the DB unique constraint wins.
-      if (idempotencyKey && e && e.code === "P2002") {
-        const existingOrder = await orderDAO.getOrderByIdempotencyKey(tx, idempotencyKey);
-        if (existingOrder) return existingOrder;
-      }
-      throw e;
-    }
-
-    // 4. Create initial payment record (if needed)
-    // Note: You might want to create this when actually charging
-    // For now, we'll create it in INITIATED status
+    // 3️⃣ Create initial payment record
     const payment = await paymentDAO.createPayment(tx, {
       orderId: order.id,
       method: paymentMethod,
       status: "INITIATED",
-      amount: amount
+      amount
     });
 
-    // 5. Return order with payment info
     return {
       ...order,
       payments: [payment]
@@ -107,13 +90,12 @@ exports.updateOrderStatus = async (orderId, status) => {
 };
 
 /**
- * Process a charge (update payment to processing/succeeded)
+ * Process a charge
  */
 exports.processCharge = async (orderId, chargeData) => {
   return prisma.$transaction(async (tx) => {
     const { tilledPaymentId, rawRequest, rawResponse } = chargeData;
 
-    // Get the order
     const order = await orderDAO.getOrderById(tx, orderId, {
       payments: true,
       items: false,
@@ -128,7 +110,6 @@ exports.processCharge = async (orderId, chargeData) => {
       throw new Error("Order already paid");
     }
 
-    // Find the initiated payment or create new one
     let payment = order.payments.find(p => p.status === "INITIATED");
 
     if (!payment) {
@@ -140,7 +121,6 @@ exports.processCharge = async (orderId, chargeData) => {
       });
     }
 
-    // Update payment with Tilled info
     const updatedPayment = await paymentDAO.updatePayment(tx, payment.id, {
       tilledPaymentId,
       status: "PROCESSING",
@@ -148,7 +128,6 @@ exports.processCharge = async (orderId, chargeData) => {
       rawResponse
     });
 
-    // Update order status
     await orderDAO.updateOrder(tx, orderId, { status: "PENDING" });
 
     return updatedPayment;
@@ -160,13 +139,11 @@ exports.processCharge = async (orderId, chargeData) => {
  */
 exports.markPaymentSucceeded = async (paymentId, tilledData = {}) => {
   return prisma.$transaction(async (tx) => {
-    // Update payment
     const payment = await paymentDAO.updatePayment(tx, paymentId, {
       status: "SUCCEEDED",
       rawResponse: tilledData
     });
 
-    // Update order status
     await orderDAO.updateOrder(tx, payment.orderId, { status: "PAID" });
 
     return payment;
@@ -176,14 +153,12 @@ exports.markPaymentSucceeded = async (paymentId, tilledData = {}) => {
 /**
  * Mark payment as failed
  */
-exports.markPaymentFailed = async (paymentId, errorMessage) => {
+exports.markPaymentFailed = async (paymentId) => {
   return prisma.$transaction(async (tx) => {
-    // Update payment
     const payment = await paymentDAO.updatePayment(tx, paymentId, {
       status: "FAILED"
     });
 
-    // Update order status
     await orderDAO.updateOrder(tx, payment.orderId, { status: "FAILED" });
 
     return payment;
@@ -198,13 +173,15 @@ exports.refundPayment = async (productId, orderId, refundData) => {
     const { amount, reason, tilledRefundId } = refundData;
     const refundDAO = require("../dao/refund.dao");
 
-    // Get the order with payments
-    const order = await orderDAO.getOrderByIdAndProduct(tx, orderId, productId, {
-      items: false,
-      payments: true,
-      refunds: true,
-      productUser: false
-    });
+    const order = await orderDAO.getOrderByIdAndProduct(
+      tx,
+      orderId,
+      productId,
+      {
+        payments: true,
+        refunds: true
+      }
+    );
 
     if (!order) {
       throw new Error("Order not found");
@@ -214,7 +191,6 @@ exports.refundPayment = async (productId, orderId, refundData) => {
       throw new Error("Only paid orders can be refunded");
     }
 
-    // Get the successful payment
     const successfulPayment = order.payments.find(
       p => p.status === "SUCCEEDED"
     );
@@ -223,18 +199,15 @@ exports.refundPayment = async (productId, orderId, refundData) => {
       throw new Error("No successful payment found for this order");
     }
 
-    // Calculate total refunded amount
     const totalRefunded = successfulPayment.refunds.reduce(
       (sum, refund) => sum + refund.amount,
       0
     );
 
-    // Validate refund amount
-    if (amount > (successfulPayment.amount - totalRefunded)) {
+    if (amount > successfulPayment.amount - totalRefunded) {
       throw new Error("Refund amount exceeds available balance");
     }
 
-    // Create refund record
     const refund = await refundDAO.createRefund(tx, {
       paymentId: successfulPayment.id,
       tilledRefundId,
@@ -243,8 +216,8 @@ exports.refundPayment = async (productId, orderId, refundData) => {
       status: "PENDING"
     });
 
-    // Update order status if full refund
     const newTotalRefunded = totalRefunded + amount;
+
     if (newTotalRefunded === successfulPayment.amount) {
       await orderDAO.updateOrder(tx, orderId, { status: "REFUNDED" });
     }
@@ -262,7 +235,7 @@ exports.updateRefundStatus = async (refundId, status) => {
 };
 
 /**
- * Get order by reference ID (from external system)
+ * Get order by reference ID
  */
 exports.getOrderByReferenceId = async (productId, referenceId) => {
   return orderDAO.getOrderByReferenceId(null, productId, referenceId);
