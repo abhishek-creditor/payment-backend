@@ -1,5 +1,5 @@
-import { request } from 'undici';
-import crypto from 'crypto';
+const { request } = require('undici');
+const crypto = require('crypto');
 
 class TilledService {
     // ... (rest of class methods, assuming they are static and fine)
@@ -138,4 +138,4 @@ class TilledService {
 
 }
 
-export default TilledService;
+module.exports = TilledService;
