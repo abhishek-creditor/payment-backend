@@ -20,11 +20,12 @@ module.exports = async function idempotency(req, res, next) {
   const method = req.method.toUpperCase();
 
   // Normalize path (remove query + trailing slash)
-  let path = (req.originalUrl || req.url || "").split("?")[0];
+  let path = (req.originalUrl || req.url || "").split("?")[0]; // remove query params
   if (path.endsWith("/") && path.length > 1) {
     path = path.slice(0, -1);
   }
 
+  // server body or query ka hash bnao taki same key different payload pe reuse na ho
   const requestHash = crypto
     .createHash("sha256")
     .update(
@@ -32,9 +33,11 @@ module.exports = async function idempotency(req, res, next) {
     )
     .digest("hex");
 
+    // record kab expire hoga
   const now = new Date();
   const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000);
 
+  // unique constraint ke liye same combination of productId, key, method, path hona chahiye
   const uniqueWhere = {
     productId_key_method_path: {
       productId,
@@ -51,7 +54,7 @@ module.exports = async function idempotency(req, res, next) {
       where: uniqueWhere,
     });
   } catch (err) {
-    return res.status(500).json({ error: "Idempotency lookup failed" });
+    return res.status(500).json({ error: "Idempotency lookup failed" }); // aagar nahi mila to 500 error
   }
 
   // ================================
@@ -59,14 +62,14 @@ module.exports = async function idempotency(req, res, next) {
   // ================================
   if (record) {
     // Expired → treat as new
-    if (record.expiresAt && record.expiresAt < now) {
+    if (record.expiresAt && record.expiresAt < now) { // agar record expire ho chuka hai to delete kar do taki naya record create ho sake
       try {
         await prisma.idempotencyKey.delete({ where: { id: record.id } });
       } catch (e) {}
       record = null;
     } else {
       // Payload mismatch
-      if (record.requestHash !== requestHash) {
+      if (record.requestHash !== requestHash) { // !important same key but different body
         return res.status(409).json({
           error: "Idempotency-Key reused with different request payload",
           message: "Use a new Idempotency-Key for a different request.",
@@ -75,13 +78,13 @@ module.exports = async function idempotency(req, res, next) {
 
       // Completed → replay response
       if (record.status === "COMPLETED" && record.responseBody != null) {
-        res.set("Idempotency-Replayed", "true");
+        res.set("Idempotency-Replayed", "true"); // set in headers to indicate this is a replayed response
         return res
           .status(record.responseStatusCode || 200)
           .json(record.responseBody);
       }
 
-      // In Progress → check if stale
+      // In Progress → check if stale(progress me hai lekin bahut time ho gaya hai to stale ho sakta hai)
       if (record.status === "IN_PROGRESS") {
         const ageSeconds =
           (now.getTime() - new Date(record.createdAt).getTime()) / 1000;
