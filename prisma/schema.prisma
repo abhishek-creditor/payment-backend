@@ -126,7 +126,7 @@ model Order {
   subscriptionId String?
 
   referenceId    String // order id from product system
-  idempotencyKey String? @unique // prevent duplicate charges
+  // idempotencyKey String? @unique // prevent duplicate charges
 
   amount   Int // smallest currency unit (cents / paise)
   currency String      @default("USD")
@@ -146,7 +146,7 @@ model Order {
   updatedAt DateTime @updatedAt@default(now())
 
   @@unique([productId, referenceId])
-  @@index([idempotencyKey])
+  // @@index([idempotencyKey])
   @@index([status])  // 👈 ADD: Fast filtering by status
   @@index([productId, status])  // 👈 ADD: Composite index for common query
   @@index([createdAt])  // 👈 ADD: Fast date range queries
@@ -311,6 +311,50 @@ model Subscription {
   @@index([status])
 }
 
+model AuditLog {
+  id          String   @id @default(uuid())
+
+  // Core Required Info
+  userId      String?
+  userName    String?
+  paymentStatus String?
+  timestamp   DateTime @default(now())
+
+  // Service Context
+  serviceName String
+  eventType   AuditEventType
+  status      AuditStatus
+
+  // Business References
+  productId   String?
+  apiKeyId    String?
+  orderId     String?
+  paymentId   String?
+  refundId    String?
+  subscriptionId String?
+
+  // Request Context (Helpful for Debugging & Security)
+  ipAddress   String?
+  httpMethod  String?
+  path        String?
+  requestId   String?
+
+  // Flexible Data Storage
+  metadata    Json?
+  errorMessage String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([productId])
+  @@index([apiKeyId])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
 enum OrderStatus {
   CREATED
   PENDING
@@ -363,4 +407,25 @@ enum SubscriptionStatus {
   CANCELLED
   PAST_DUE
   TRIAL
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILED
+}
+
+enum AuditEventType {
+  ORDER_CREATED
+  ORDER_UPDATED
+  PAYMENT_INITIATED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  REFUND_INITIATED
+  REFUND_SUCCEEDED
+  REFUND_FAILED
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_CANCELLED
+  WEBHOOK_RECEIVED
+  API_KEY_CREATED
+  API_KEY_REVOKED
 }
