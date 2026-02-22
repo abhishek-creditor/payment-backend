@@ -312,6 +312,71 @@ model Subscription {
   @@index([status])
 }
 
+model AuditLog {
+  id          String   @id @default(uuid())
+
+  // Core Required Info
+  userId      String?
+  userName    String?
+  paymentStatus String?
+  timestamp   DateTime @default(now())
+
+  // Service Context
+  serviceName String
+  eventType   AuditEventType
+  status      AuditStatus
+
+  // Business References
+  productId   String?
+  apiKeyId    String?
+  orderId     String?
+  paymentId   String?
+  refundId    String?
+  subscriptionId String?
+
+  // Request Context (Helpful for Debugging & Security)
+  ipAddress   String?
+  httpMethod  String?
+  path        String?
+  requestId   String?
+
+  // Flexible Data Storage
+  metadata    Json?
+  errorMessage String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([productId])
+  @@index([apiKeyId])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILED
+}
+
+enum AuditEventType {
+  ORDER_CREATED
+  ORDER_UPDATED
+  PAYMENT_INITIATED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  REFUND_INITIATED
+  REFUND_SUCCEEDED
+  REFUND_FAILED
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_CANCELLED
+  WEBHOOK_RECEIVED
+  API_KEY_CREATED
+  API_KEY_REVOKED
+}
+
 enum OrderStatus {
   CREATED
   PENDING

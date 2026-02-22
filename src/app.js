@@ -4,88 +4,85 @@ const cors = require("cors");
 const morgan = require("morgan");
 const prisma = require("./utils/prisma");
 
+const requestId = require("./middleware/requestId");
+const requestLogger = require("./middleware/requestLogger");
+const errorLogger = require("./middleware/errorLogger");
+
 const app = express();
 
-// Middleware
+/* ======================================================
+   GLOBAL MIDDLEWARE
+====================================================== */
+
 app.use(helmet());
+app.use(cors());
 app.use(express.json());
-app.use(cors()); // Allow all origins by default for now, or configure as needed
 app.use(morgan("combined"));
 
-// Import routes
+app.use(requestId);       // Unique request ID
+app.use(requestLogger);   // 🔥 Log every request
+
+/* ======================================================
+   ROUTES
+====================================================== */
+
 const paymentsRoutes = require("./routes/payments.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
 
-// Import middleware
 const authenticate = require("./middleware/auth");
 
-// ============================================
-// PUBLIC ROUTES (no authentication)
-// ============================================
+/* ---------------- PUBLIC ROUTES ---------------- */
 
 app.get("/", (req, res) => {
   res.send("Payment service is running");
 });
 
-// Health check endpoint
 app.get("/health", async (req, res) => {
   try {
-    // Check database connection
     await prisma.$queryRaw`SELECT 1`;
-    
-    res.status(200).json({ 
-      status: 'ok', 
-      database: 'connected',
+
+    res.status(200).json({
+      status: "ok",
+      database: "connected",
       timestamp: new Date().toISOString(),
       uptime: process.uptime()
     });
   } catch (error) {
-    res.status(503).json({ 
-      status: 'error', 
-      database: 'disconnected',
+    res.status(503).json({
+      status: "error",
+      database: "disconnected",
       error: error.message,
       timestamp: new Date().toISOString()
     });
   }
 });
 
-// ============================================
-// ADMIN ROUTES (for managing products & API keys)
-// ============================================
-// TODO: Add admin authentication middleware here in production
-// Example: app.use("/api/keys", adminAuth, apiKeyRoutes);
-// For now, these routes are unprotected - SECURE THESE IN PRODUCTION!
+/* ---------------- ADMIN ROUTES ---------------- */
+
 app.use("/api/products", productsRoutes);
 app.use("/api/keys", apiKeyRoutes);
 
-// ============================================
-// PROTECTED API ROUTES (require API key)
-// ============================================
-// Payment routes - require API key authentication
+/* ---------------- PROTECTED ROUTES ---------------- */
+
 app.use("/api/payments", authenticate, paymentsRoutes);
 
-// ============================================
-// ERROR HANDLING
-// ============================================
+/* ======================================================
+   404 HANDLER
+====================================================== */
 
-// 404 handler - must come after all routes
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: "Route not found",
     path: req.path,
     method: req.method
   });
 });
 
-// Global error handler - must be last
-app.use((err, req, res, next) => {
-  console.error("Error:", err);
-  
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
-});
+/* ======================================================
+   GLOBAL ERROR HANDLER (Enterprise Safe)
+====================================================== */
+
+app.use(errorLogger);
 
 module.exports = app;

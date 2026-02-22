@@ -2,10 +2,10 @@ const prisma = require("../utils/prisma");
 const productUserDAO = require("../dao/productUser.dao");
 const orderDAO = require("../dao/order.dao");
 const paymentDAO = require("../dao/payment.dao");
+const auditService = require("./audit.service");
 
 /**
  * Create a new payment/order
- * Idempotency is fully handled by middleware
  */
 exports.createPayment = async (productId, data) => {
   return prisma.$transaction(async (tx) => {
@@ -19,14 +19,12 @@ exports.createPayment = async (productId, data) => {
       paymentMethod = "CARD"
     } = data;
 
-    // Validate required fields
     if (!externalUserId || !referenceId || !amount) {
       throw new Error(
         "Missing required fields: externalUserId, referenceId, amount"
       );
     }
 
-    // 1️⃣ Create or get product user
     const productUser = await productUserDAO.upsertProductUser(
       tx,
       productId,
@@ -34,7 +32,6 @@ exports.createPayment = async (productId, data) => {
       email
     );
 
-    // 2️⃣ Create order (NO idempotency logic here)
     const order = await orderDAO.createOrder(tx, {
       productId,
       productUserId: productUser.id,
@@ -45,12 +42,24 @@ exports.createPayment = async (productId, data) => {
       items
     });
 
-    // 3️⃣ Create initial payment record
     const payment = await paymentDAO.createPayment(tx, {
       orderId: order.id,
       method: paymentMethod,
       status: "INITIATED",
       amount
+    });
+
+    // 🔥 Audit Log
+    await auditService.log({
+      userId: productUser.id,
+      userName: productUser.email,
+      paymentStatus: "CREATED",
+      eventType: "ORDER_CREATED",
+      status: "SUCCESS",
+      productId,
+      orderId: order.id,
+      paymentId: payment.id,
+      metadata: { amount }
     });
 
     return {
@@ -61,35 +70,6 @@ exports.createPayment = async (productId, data) => {
 };
 
 /**
- * Get all payments/orders for a product
- */
-exports.getPayments = async (productId, queryParams = {}) => {
-  return orderDAO.getOrders(null, {
-    productId,
-    ...queryParams
-  });
-};
-
-/**
- * Get a specific payment/order by ID
- */
-exports.getPaymentById = async (productId, orderId) => {
-  return orderDAO.getOrderByIdAndProduct(null, orderId, productId, {
-    items: true,
-    payments: true,
-    refunds: true,
-    productUser: true
-  });
-};
-
-/**
- * Update order status
- */
-exports.updateOrderStatus = async (orderId, status) => {
-  return orderDAO.updateOrderStatus(null, orderId, status);
-};
-
-/**
  * Process a charge
  */
 exports.processCharge = async (orderId, chargeData) => {
@@ -97,9 +77,7 @@ exports.processCharge = async (orderId, chargeData) => {
     const { tilledPaymentId, rawRequest, rawResponse } = chargeData;
 
     const order = await orderDAO.getOrderById(tx, orderId, {
-      payments: true,
-      items: false,
-      productUser: false
+      payments: true
     });
 
     if (!order) {
@@ -130,6 +108,14 @@ exports.processCharge = async (orderId, chargeData) => {
 
     await orderDAO.updateOrder(tx, orderId, { status: "PENDING" });
 
+    await auditService.log({
+      eventType: "PAYMENT_INITIATED",
+      status: "SUCCESS",
+      orderId,
+      paymentId: updatedPayment.id,
+      paymentStatus: "PROCESSING"
+    });
+
     return updatedPayment;
   });
 };
@@ -146,6 +132,14 @@ exports.markPaymentSucceeded = async (paymentId, tilledData = {}) => {
 
     await orderDAO.updateOrder(tx, payment.orderId, { status: "PAID" });
 
+    await auditService.log({
+      eventType: "PAYMENT_SUCCEEDED",
+      status: "SUCCESS",
+      orderId: payment.orderId,
+      paymentId: payment.id,
+      paymentStatus: "SUCCEEDED"
+    });
+
     return payment;
   });
 };
@@ -160,6 +154,14 @@ exports.markPaymentFailed = async (paymentId) => {
     });
 
     await orderDAO.updateOrder(tx, payment.orderId, { status: "FAILED" });
+
+    await auditService.log({
+      eventType: "PAYMENT_FAILED",
+      status: "FAILED",
+      orderId: payment.orderId,
+      paymentId: payment.id,
+      paymentStatus: "FAILED"
+    });
 
     return payment;
   });
@@ -177,10 +179,7 @@ exports.refundPayment = async (productId, orderId, refundData) => {
       tx,
       orderId,
       productId,
-      {
-        payments: true,
-        refunds: true
-      }
+      { payments: true, refunds: true }
     );
 
     if (!order) {
@@ -216,27 +215,16 @@ exports.refundPayment = async (productId, orderId, refundData) => {
       status: "PENDING"
     });
 
-    const newTotalRefunded = totalRefunded + amount;
-
-    if (newTotalRefunded === successfulPayment.amount) {
-      await orderDAO.updateOrder(tx, orderId, { status: "REFUNDED" });
-    }
+    await auditService.log({
+      eventType: "REFUND_INITIATED",
+      status: "SUCCESS",
+      orderId,
+      paymentId: successfulPayment.id,
+      refundId: refund.id,
+      paymentStatus: "PARTIAL_REFUND",
+      metadata: { amount, reason }
+    });
 
     return refund;
   });
-};
-
-/**
- * Update refund status
- */
-exports.updateRefundStatus = async (refundId, status) => {
-  const refundDAO = require("../dao/refund.dao");
-  return refundDAO.updateRefundStatus(null, refundId, status);
-};
-
-/**
- * Get order by reference ID
- */
-exports.getOrderByReferenceId = async (productId, referenceId) => {
-  return orderDAO.getOrderByReferenceId(null, productId, referenceId);
 };
