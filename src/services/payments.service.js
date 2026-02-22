@@ -10,22 +10,33 @@ exports.createPayment = async (productId, data) => {
   return prisma.$transaction(async (tx) => {
     const {
       externalUserId,
+      name,
       email,
       referenceId,
       idempotencyKey,
-      amount,
-      currency = "USD",
+      plan_code,
       items = [],
       paymentMethod = "CARD"
     } = data;
+   
+     const normalizedPlanCode = String(plan_code).trim();
+     const plan = await tx.productPlan.findFirst({
+      where: {
+        productId,
+        code: normalizedPlanCode,
+        isActive: true
+      }
+    });
 
-    // Validate required fields
-    if (!externalUserId || !referenceId || !amount) {
-      throw new Error("Missing required fields: externalUserId, referenceId, amount");
+    if (!plan) {
+      throw new Error("Invalid plan_code");
     }
 
+   const amount = plan.price;
+   const currency = plan.currency;
+
     // 1. Create or get product user
-    const productUser = await productUserDAO.upsertProductUser(tx, productId, externalUserId, email);
+    const productUser = await productUserDAO.upsertProductUser(tx, productId, externalUserId, name,email);
 
     // 2. Check for duplicate using idempotency key
     if (idempotencyKey) {
@@ -48,7 +59,8 @@ exports.createPayment = async (productId, data) => {
         amount,
         currency,
         status: "CREATED",
-        items
+        items,
+        planId: plan.id
       });
     } catch (e) {
       // If two concurrent requests race, the DB unique constraint wins.
@@ -66,7 +78,7 @@ exports.createPayment = async (productId, data) => {
       orderId: order.id,
       method: paymentMethod,
       status: "INITIATED",
-      amount: amount
+      amount
     });
 
     // 5. Return order with payment info
