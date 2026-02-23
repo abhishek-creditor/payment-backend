@@ -3,6 +3,7 @@ const helmet = require("helmet");
 const cors = require("cors");
 const morgan = require("morgan");
 const prisma = require("./utils/prisma");
+const auditLogger = require("./middleware/auditLogger");
 
 const app = express();
 
@@ -11,6 +12,7 @@ app.use(helmet());
 app.use(express.json());
 app.use(cors()); // Allow all origins by default for now, or configure as needed
 app.use(morgan("combined"));
+app.use(auditLogger); // Log all incoming requests for auditing
 
 // Import routes
 const paymentsRoutes = require("./routes/payments.routes");
