@@ -19,8 +19,8 @@ const validatereqbody = require("../middleware/validatePaymentRequest");
 router.post(
   "/",
   requirePermissions(["charge"]),
-  idempotency,
   validatereqbody,
+  idempotency,
   controller.createPayment
 );
 
