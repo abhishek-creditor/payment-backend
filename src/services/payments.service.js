@@ -3,6 +3,7 @@ const productUserDAO = require("../dao/productUser.dao");
 const orderDAO = require("../dao/order.dao");
 const paymentDAO = require("../dao/payment.dao");
 const refundDAO = require("../dao/refund.dao");
+const TilledService = require("./tilled.service");
 
 // Assume Tilled SDK instance
 
@@ -23,30 +24,30 @@ exports.createPayment = async (productId, data, options = {}) => {
     email,
     referenceId,
     plan_code,
-    items = [],
-    paymentMethod = "CARD"
+    paymentMethod = "CARD",
+    tilledAccountId
   } = data;
   const normalizedPlanCode = String(plan_code).trim();
   const plan = await prisma.productPlan.findFirst({
-      where: {
-        productId,
-        code: normalizedPlanCode,
-        isActive: true
-      }
-    });
-    if (!plan) {    
-      throw new Error("Invalid plan_code");
+    where: {
+      productId,
+      code: normalizedPlanCode,
+      isActive: true
     }
-    if (!plan.price || !plan.currency) {
+  });
+  if (!plan) {
+    throw new Error("Invalid plan_code");
+  }
+  if (!plan.price || !plan.currency) {
     throw new Error("Invalid plan configuration");
-    }
- const amount = plan.price;
- const currency = plan.currency;
+  }
+  const amount = plan.price;
+  const currency = plan.currency;
 
   // ---------------------------
   // STEP 1: DB TRANSACTION
   // ---------------------------
- const { order, payment,duplicate } = await prisma.$transaction(async (tx) => {
+  const { order, payment, duplicate, productUser } = await prisma.$transaction(async (tx) => {
 
     const productUser = await productUserDAO.upsertProductUser(
       tx,
@@ -62,50 +63,126 @@ exports.createPayment = async (productId, data, options = {}) => {
     );
 
     if (existingOrder) {
-     return {
-     order: existingOrder,
-     duplicate: true
-     };
+      return {
+        order: existingOrder,
+        duplicate: true
+      };
     }
 
     const order = await orderDAO.createOrder(tx, {
       productId,
       productUserId: productUser.id,
+      planId: plan.id,
       referenceId,
       amount,
       currency,
       status: "CREATED",
-      items
+      items: [{
+        name: plan.name,
+        price: amount,
+        quantity: 1
+      }]
     });
 
     const payment = await paymentDAO.createPayment(tx, {
       orderId: order.id,
       amount: amount,
       method: paymentMethod,
-      status: "INITIATED",
-      amount
+      status: "INITIATED"
     });
 
-    return { order, payment, duplicate: false };
-   });
+    return { order, payment, duplicate: false, productUser };
+  });
 
-   if (duplicate) {
-   console.log("🔁 Duplicate order detected");
+  if (duplicate) {
+    console.log("🔁 Duplicate order detected");
 
-   return {
-    ...order,
-    payments: order.payments || [],
-    __duplicate: true
-   };
+    return {
+      ...order,
+      payments: order.payments || [],
+      __duplicate: true
+    };
   }
-  //add the tilled calling here 
+  // 3. Create or get Tilled Customer
+  let tilledCustomer = null;
+  const targetAccountId = tilledAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
+
+  if (productUser.tilledCustomerId) {
+    try {
+      const getCustomerResponse = await TilledService.getCustomer(productUser.tilledCustomerId, targetAccountId);
+      if (getCustomerResponse.statusCode >= 200 && getCustomerResponse.statusCode < 300) {
+        tilledCustomer = getCustomerResponse.data;
+      }
+    } catch (error) {
+      console.error(`Could not fetch existing Tilled customer ${productUser.tilledCustomerId}, will create a new one.`);
+    }
+  }
+
+  if (!tilledCustomer) {
+    const tilledCustomerResponse = await TilledService.createCustomer({
+      email: email,
+      first_name: externalUserId,
+      metadata: {
+        externalUserId: externalUserId,
+        productId: productId
+      }
+    }, targetAccountId);
+    tilledCustomer = tilledCustomerResponse.data;
+
+    // Update our DB with this most recent customer ID outside the main transaction
+    await productUserDAO.updateTilledCustomerId(null, productUser.id, tilledCustomer.id);
+  }
+
+  // 4. Create Tilled Checkout Session
+  const lineItems = [{
+    price_data: {
+      currency: currency,
+      product_data: {
+        name: plan.name || `Plan ${plan.code}` || "Order Payment"
+      },
+      unit_amount: amount
+    },
+    quantity: 1
+  }];
+
+  const checkoutSessionResponse = await TilledService.createCheckoutSession({
+    customer_id: tilledCustomer.id,
+    line_items: lineItems,
+    mode: 'payment',
+    success_url: process.env.CLIENT_SUCCESS_URL || `https://www.example.com/success`,
+    cancel_url: process.env.CLIENT_CANCEL_URL || `https://www.example.com/cancel`,
+    payment_intent_data: {
+      description: `Order ${order.id}`,
+      setup_future_usage: "off_session",
+      payment_method_types: ["card"]
+    },
+    metadata: {
+      orderId: order.id,
+      productId: productId
+    }
+  }, targetAccountId);
+
+  const checkoutSession = checkoutSessionResponse.data;
+
+  if (checkoutSessionResponse.statusCode >= 400) {
+    throw new Error(`Tilled Error: ${checkoutSession.message || checkoutSession.error || 'Failed to create checkout session'}`);
+  }
+
+  // Update payment record with Tilled info
+  await paymentDAO.updatePayment(null, payment.id, {
+    tilledPaymentId: checkoutSession.payment_intent,
+    rawResponse: checkoutSession
+  });
 
   return {
     ...order,
     payments: [{
       ...payment,
-      status: finalStatus
-    }]
+      tilledPaymentId: checkoutSession.payment_intent,
+      status: "INITIATED",
+      rawResponse: checkoutSession
+    }],
+    checkoutUrl: checkoutSession.url
   };
 };
 
@@ -125,7 +202,7 @@ exports.refundPayment = async (
   orderId,
   refundData,
   options = {}
-  ) => {
+) => {
 
   const { idempotencyKey } = options;
   const { amount, reason } = refundData;
