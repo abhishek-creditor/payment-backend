@@ -124,6 +124,10 @@ class TilledService {
         return await this._makeRequest('/checkout-sessions', 'POST', sessionData, tilledAccountId);
     }
 
+    static async getCustomer(customerId, tilledAccountId) {
+        return await this._makeRequest(`/customers/${customerId}`, 'GET', null, tilledAccountId);
+    }
+
     static async createCustomer(customerData, tilledAccountId) {
         return await this._makeRequest('/customers', 'POST', customerData, tilledAccountId);
     }

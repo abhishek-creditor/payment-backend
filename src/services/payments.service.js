@@ -58,24 +58,36 @@ exports.createPayment = async (productId, data) => {
     // Create customer in Tilled (idempotent-ish if we store it)
     const TilledService = require("./tilled.service");
 
-    // We'll update the customer ID *if* we are creating a new one or overriding.
-    // If we assume the user might have different IDs for different authors, we can't overwrite blindly
-    // without losing the previous one. 
-    // BUT the prompt implies specific author payment.
+    let tilledCustomer = null;
+    const targetAccountId = tilledAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
 
-    // Strategy: Try to creating/getting the customer on the target account.
-    const tilledCustomerResponse = await TilledService.createCustomer({
-      email: email,
-      first_name: externalUserId,
-      metadata: {
-        externalUserId: externalUserId,
-        productId: productId
+    // If we already have a tilledCustomerId for this user, check if it exists on Tilled
+    if (productUser.tilledCustomerId) {
+      try {
+        const getCustomerResponse = await TilledService.getCustomer(productUser.tilledCustomerId, targetAccountId);
+        if (getCustomerResponse.statusCode >= 200 && getCustomerResponse.statusCode < 300) {
+          tilledCustomer = getCustomerResponse.data;
+        }
+      } catch (error) {
+        console.error(`Could not fetch existing Tilled customer ${productUser.tilledCustomerId}, will create a new one.`);
       }
-    }, tilledAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID);
-    const tilledCustomer = tilledCustomerResponse.data;
+    }
 
-    // Update our DB with this most recent customer ID
-    productUser = await productUserDAO.updateTilledCustomerId(tx, productUser.id, tilledCustomer.id);
+    // If customer doesn't exist on Tilled or we didn't have a tilledCustomerId, create a new one
+    if (!tilledCustomer) {
+      const tilledCustomerResponse = await TilledService.createCustomer({
+        email: email,
+        first_name: externalUserId,
+        metadata: {
+          externalUserId: externalUserId,
+          productId: productId
+        }
+      }, targetAccountId);
+      tilledCustomer = tilledCustomerResponse.data;
+
+      // Update our DB with this most recent customer ID
+      productUser = await productUserDAO.updateTilledCustomerId(tx, productUser.id, tilledCustomer.id);
+    }
 
 
     // 4. Create order with items
@@ -133,6 +145,7 @@ exports.createPayment = async (productId, data) => {
       cancel_url: `https://www.example.com/cancel`, // TODO: Get from config
       payment_intent_data: {
         description: "Order #123456",
+        setup_future_usage: "off_session",
         payment_method_types: ["card"]
       },
       metadata: {
