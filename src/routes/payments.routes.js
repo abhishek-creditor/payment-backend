@@ -4,7 +4,7 @@ const router = express.Router();
 const requirePermissions = require("../middleware/requirePermissions");
 const idempotency = require("../middleware/idempotency");
 const controller = require("../controllers/payments.controller");
-const validatereqbody = require("../middleware/validatePaymentRequest");
+const {validateCreatePayment} = require("../middleware/validatePaymentRequest");
 // ============================================
 // PAYMENT ROUTES
 // All routes here already have authenticate middleware applied in app.js
@@ -19,7 +19,7 @@ const validatereqbody = require("../middleware/validatePaymentRequest");
 router.post(
   "/",
   requirePermissions(["charge"]),
-  validatereqbody,
+  validateCreatePayment,
   idempotency,
   controller.createPayment
 );
