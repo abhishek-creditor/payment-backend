@@ -10,35 +10,75 @@ class OrderDAO {
   async createOrder(tx, orderData) {
     const client = tx || prisma;
 
-    return client.order.create({
-      data: {
-        productId: orderData.productId,
-        productUserId: orderData.productUserId,
-        referenceId: orderData.referenceId,
-        idempotencyKey: orderData.idempotencyKey,
-        amount: parseInt(orderData.amount),
-        currency: orderData.currency,
-        status: orderData.status || "CREATED",
-        items: {
-          create: orderData.items.map(item => ({
-            name: item.name,
-            sku: item.sku || null,
-            quantity: item.quantity || 1,
-            price: item.price
-          }))
-        }
-      },
-      include: {
-        items: true,
-        productUser: {
-          select: {
-            id: true,
-            externalUserId: true,
-            email: true
-          }
+    try {
+      const order = await client.order.create({
+        data: {
+          productId: orderData.productId,
+          productUserId: orderData.productUserId,
+          referenceId: orderData.referenceId,
+          amount: orderData.amount,
+          currency: orderData.currency,
+          status: orderData.status || "CREATED",
+          items: {
+            create: (orderData.items || []).map((item) => ({
+              name: item.name,
+              sku: item.sku || null,
+              quantity: item.quantity || 1,
+              price: item.price,
+            })),
+          },
+        },
+        include: {
+          items: true,
+          productUser: {
+            select: {
+              id: true,
+              externalUserId: true,
+              email: true,
+            },
+          },
+          payments: true,
+        },
+      });
+
+      order.__duplicate = false;
+      return order;
+    } catch (error) {
+      // Handle unique constraint safely
+      if (error.code === "P2002") {
+        
+        // Duplicate detected based on unique constraint (e.g., referenceId + productId)
+        console.warn("[IDEMPOTENCY] Duplicate detected", {
+          productId: orderData.productId,
+          referenceId: orderData.referenceId,
+        });
+
+        const existingOrder = await client.order.findFirst({
+          where: {
+            productId: orderData.productId,
+            referenceId: orderData.referenceId,
+          },
+          include: {
+            items: true,
+            payments: true,
+            productUser: {
+              select: {
+                id: true,
+                externalUserId: true,
+                email: true,
+              },
+            },
+          },
+        });
+
+        if (existingOrder) {
+          existingOrder.__duplicate = true;
+          return existingOrder;
         }
       }
-    });
+
+      throw error;
+    }
   }
 
   /**
@@ -53,22 +93,28 @@ class OrderDAO {
 
     const include = {
       items: includeOptions.items !== false,
-      payments: includeOptions.payments !== false ? {
-        include: {
-          refunds: includeOptions.refunds !== false
-        }
-      } : false,
-      productUser: includeOptions.productUser !== false ? {
-        select: {
-          externalUserId: true,
-          email: true
-        }
-      } : false
+      payments:
+        includeOptions.payments !== false
+          ? {
+              include: {
+                refunds: includeOptions.refunds !== false,
+              },
+            }
+          : false,
+      productUser:
+        includeOptions.productUser !== false
+          ? {
+              select: {
+                externalUserId: true,
+                email: true,
+              },
+            }
+          : false,
     };
 
     return client.order.findUnique({
       where: { id: orderId },
-      include
+      include,
     });
   }
 
@@ -85,25 +131,31 @@ class OrderDAO {
 
     const include = {
       items: includeOptions.items !== false,
-      payments: includeOptions.payments !== false ? {
-        include: {
-          refunds: includeOptions.refunds !== false
-        }
-      } : false,
-      productUser: includeOptions.productUser !== false ? {
-        select: {
-          externalUserId: true,
-          email: true
-        }
-      } : false
+      payments:
+        includeOptions.payments !== false
+          ? {
+              include: {
+                refunds: includeOptions.refunds !== false,
+              },
+            }
+          : false,
+      productUser:
+        includeOptions.productUser !== false
+          ? {
+              select: {
+                externalUserId: true,
+                email: true,
+              },
+            }
+          : false,
     };
 
     return client.order.findFirst({
       where: {
         id: orderId,
-        productId
+        productId,
       },
-      include
+      include,
     });
   }
 
@@ -116,13 +168,9 @@ class OrderDAO {
   async getOrderByIdempotencyKey(tx, idempotencyKey) {
     const client = tx || prisma;
 
-    return client.order.findUnique({
-      where: { idempotencyKey },
-      include: {
-        items: true,
-        payments: true
-      }
-    });
+    // idempotencyKey does not exist in Order model
+    // idempotency handling is managed by IdempotencyKey table via middleware
+    return null;
   }
 
   /**
@@ -138,17 +186,17 @@ class OrderDAO {
     return client.order.findFirst({
       where: {
         productId,
-        referenceId
+        referenceId,
       },
       include: {
         items: true,
         payments: {
           include: {
-            refunds: true
-          }
+            refunds: true,
+          },
         },
-        productUser: true
-      }
+        productUser: true,
+      },
     });
   }
 
@@ -167,7 +215,7 @@ class OrderDAO {
       limit = 10,
       status,
       startDate,
-      endDate
+      endDate,
     } = filters;
 
     const where = { productId };
@@ -189,21 +237,21 @@ class OrderDAO {
           items: true,
           payments: {
             include: {
-              refunds: true
-            }
+              refunds: true,
+            },
           },
           productUser: {
             select: {
               externalUserId: true,
-              email: true
-            }
-          }
+              email: true,
+            },
+          },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit)
+        take: parseInt(limit),
       }),
-      client.order.count({ where })
+      client.order.count({ where }),
     ]);
 
     return {
@@ -212,8 +260,8 @@ class OrderDAO {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit))
-      }
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
     };
   }
 
@@ -232,8 +280,8 @@ class OrderDAO {
       data: { status },
       include: {
         items: true,
-        payments: true
-      }
+        payments: true,
+      },
     });
   }
 
@@ -249,7 +297,7 @@ class OrderDAO {
 
     return client.order.update({
       where: { id: orderId },
-      data
+      data,
     });
   }
 }

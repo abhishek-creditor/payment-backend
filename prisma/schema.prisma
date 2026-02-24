@@ -122,8 +122,10 @@ model Order {
   id            String @id @default(uuid())
   productId     String
   productUserId String
-  planId        String?
+  planId        String  //made it mandatory
   subscriptionId String?
+
+  orderType      OrderType  @default(ONE_TIME)
 
   referenceId    String // order id from product system
   // idempotencyKey String? @unique // prevent duplicate charges
@@ -136,7 +138,7 @@ model Order {
 
   product     Product     @relation(fields: [productId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if orders exist
   productUser ProductUser @relation(fields: [productUserId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if orders exist
-  plan        ProductPlan? @relation(fields: [planId], references: [id], onDelete: Restrict)
+  plan        ProductPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
   subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   items    OrderItem[]
@@ -428,4 +430,12 @@ enum AuditEventType {
   WEBHOOK_RECEIVED
   API_KEY_CREATED
   API_KEY_REVOKED
+}
+
+enum OrderType {
+  ONE_TIME
+  SUBSCRIPTION
+  CANCEL
+  REFUND
+  OTHER
 }
