@@ -13,19 +13,19 @@ model Product {
   code     String  @unique // lms, ebook, ppt, etc.
   isActive Boolean @default(true)
 
-  apiKeys     ApiKey[]
-  users       ProductUser[]
-  plans         ProductPlan[]
-  subscriptions Subscription[]
-  orders      Order[]
-  requestLogs ApiRequestLog[]
+  apiKeys         ApiKey[]
+  users           ProductUser[]
+  plans           ProductPlan[]
+  subscriptions   Subscription[]
+  orders          Order[]
+  requestLogs     ApiRequestLog[]
   idempotencyKeys IdempotencyKey[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
-  
-  @@index([code])  // 👈 ADD: Fast lookup by code
-  @@index([isActive])  // 👈 ADD: Fast filtering of active products
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([code]) // 👈 ADD: Fast lookup by code
+  @@index([isActive]) // 👈 ADD: Fast filtering of active products
 }
 
 model ApiKey {
@@ -44,18 +44,18 @@ model ApiKey {
   expiresAt  DateTime?
   lastUsedAt DateTime?
 
-  product     Product            @relation(fields: [productId], references: [id], onDelete: Cascade)  // 👈 CHANGE: Add onDelete
-  requestLogs ApiRequestLog[]
-  rateLimits  RateLimitTracker[]
+  product         Product            @relation(fields: [productId], references: [id], onDelete: Cascade) // 👈 CHANGE: Add onDelete
+  requestLogs     ApiRequestLog[]
+  rateLimits      RateLimitTracker[]
   idempotencyKeys IdempotencyKey[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([keyPrefix])
   @@index([productId])
-  @@index([isActive])  // 👈 ADD: Fast filtering of active keys
-  @@index([expiresAt])  // 👈 ADD: Fast finding of expired keys
+  @@index([isActive]) // 👈 ADD: Fast filtering of active keys
+  @@index([expiresAt]) // 👈 ADD: Fast finding of expired keys
 }
 
 model RateLimitTracker {
@@ -85,15 +85,15 @@ model ApiRequestLog {
   responseTimeMs Int?
   errorMessage   String?
 
-  apiKey  ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)  // 👈 CHANGE: Keep logs when key deleted
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)  // 👈 CHANGE: Keep logs when product deleted
+  apiKey  ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull) // 👈 CHANGE: Keep logs when key deleted
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull) // 👈 CHANGE: Keep logs when product deleted
 
   createdAt DateTime @default(now())
 
   @@index([apiKeyId])
   @@index([productId])
   @@index([createdAt])
-  @@index([statusCode])  // 👈 ADD: Fast filtering by status (for error reports)
+  @@index([statusCode]) // 👈 ADD: Fast filtering by status (for error reports)
 }
 
 model ProductUser {
@@ -102,32 +102,32 @@ model ProductUser {
   externalUserId String // userId from calling product
   email          String?
 
-  tilledCustomerId String? 
+  tilledCustomerId        String?
   tilledCustomerCreatedAt DateTime?
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)  // 👈 CHANGE: Add onDelete
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade) // 👈 CHANGE: Add onDelete
   subscriptions Subscription[]
-  orders  Order[]
+  orders        Order[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([productId, externalUserId])
   @@index([productId])
-  @@index([email])  // 👈 ADD: Fast lookup by email
+  @@index([email]) // 👈 ADD: Fast lookup by email
   @@index([tilledCustomerId])
 }
 
 model Order {
-  id            String @id @default(uuid())
-  productId     String
-  productUserId String
-  planId        String  //made it mandatory
+  id             String  @id @default(uuid())
+  productId      String
+  productUserId  String
+  planId         String //made it mandatory
   subscriptionId String?
 
-  orderType      OrderType  @default(ONE_TIME)
+  orderType OrderType @default(ONE_TIME)
 
-  referenceId    String // order id from product system
+  referenceId String // order id from product system
   // idempotencyKey String? @unique // prevent duplicate charges
 
   amount   Int // smallest currency unit (cents / paise)
@@ -136,22 +136,22 @@ model Order {
 
   metadata Json?
 
-  product     Product     @relation(fields: [productId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if orders exist
-  productUser ProductUser @relation(fields: [productUserId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if orders exist
-  plan        ProductPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Restrict) // 👈 CHANGE: Prevent deletion if orders exist
+  productUser  ProductUser   @relation(fields: [productUserId], references: [id], onDelete: Restrict) // 👈 CHANGE: Prevent deletion if orders exist
+  plan         ProductPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
   subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   items    OrderItem[]
   payments Payment[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([productId, referenceId])
   // @@index([idempotencyKey])
-  @@index([status])  // 👈 ADD: Fast filtering by status
-  @@index([productId, status])  // 👈 ADD: Composite index for common query
-  @@index([createdAt])  // 👈 ADD: Fast date range queries
+  @@index([status]) // 👈 ADD: Fast filtering by status
+  @@index([productId, status]) // 👈 ADD: Composite index for common query
+  @@index([createdAt]) // 👈 ADD: Fast date range queries
 }
 
 model OrderItem {
@@ -164,16 +164,16 @@ model OrderItem {
   price    Int // per unit price (smallest currency unit)
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  
-  @@index([orderId])  // 👈 ADD: Already has FK, but explicit index helps
-  @@index([sku])  // 👈 ADD: Fast lookup by SKU
+
+  @@index([orderId]) // 👈 ADD: Already has FK, but explicit index helps
+  @@index([sku]) // 👈 ADD: Fast lookup by SKU
 }
 
 model Payment {
   id      String @id @default(uuid())
   orderId String
 
-  tilledPaymentId String? @unique  // 👈 CHANGE: Make unique to prevent duplicates
+  tilledPaymentId String?       @unique // 👈 CHANGE: Make unique to prevent duplicates
   method          PaymentMethod
   status          PaymentStatus
   amount          Int
@@ -181,33 +181,33 @@ model Payment {
   rawRequest  Json?
   rawResponse Json?
 
-  order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if payments exist
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict) // 👈 CHANGE: Prevent deletion if payments exist
   refunds Refund[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime? @updatedAt@default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @default(now()) @updatedAt
 
   @@index([tilledPaymentId])
-  @@index([orderId])  // 👈 ADD: Fast lookup by order
-  @@index([status])  // 👈 ADD: Fast filtering by status
+  @@index([orderId]) // 👈 ADD: Fast lookup by order
+  @@index([status]) // 👈 ADD: Fast filtering by status
 }
 
 model Refund {
   id        String @id @default(uuid())
   paymentId String
 
-  tilledRefundId String? @unique
+  tilledRefundId String?      @unique
   amount         Int
   status         RefundStatus
   reason         String?
 
-  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)  // 👈 CHANGE: Prevent deletion if refunds exist
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict) // 👈 CHANGE: Prevent deletion if refunds exist
 
   createdAt DateTime @default(now())
 
   @@index([tilledRefundId])
-  @@index([paymentId])  // 👈 ADD: Fast lookup by payment
-  @@index([status])  // 👈 ADD: Fast filtering by status
+  @@index([paymentId]) // 👈 ADD: Fast lookup by payment
+  @@index([status]) // 👈 ADD: Fast filtering by status
 }
 
 model WebhookEvent {
@@ -222,12 +222,12 @@ model WebhookEvent {
 
   @@unique([eventType, tilledId])
   @@index([processed])
-  @@index([eventType])  
-  @@index([createdAt])  
+  @@index([eventType])
+  @@index([createdAt])
 }
 
 model IdempotencyKey {
-  id        String @id @default(uuid())
+  id        String  @id @default(uuid())
   productId String
   apiKeyId  String?
 
@@ -237,12 +237,15 @@ model IdempotencyKey {
   requestHash String
 
   status             IdempotencyStatus @default(IN_PROGRESS)
+  checkoutUrl        String?
+  orderId            String?
+  paymentId          String?
   responseStatusCode Int?
   responseBody       Json?
 
   expiresAt DateTime
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   apiKey  ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
@@ -250,21 +253,22 @@ model IdempotencyKey {
   @@unique([productId, key, method, path])
   @@index([productId, createdAt])
   @@index([expiresAt])
+  @@index([orderId])
 }
 
 model ProductPlan {
-  id        String @id @default(uuid())
-  productId String
-  code        String
+  id          String      @id @default(uuid())
+  productId   String
+  code        String      @unique
   name        String
   description String?
-  price    Int
-  currency String @default("USD")
+  price       Int
+  currency    String      @default("USD")
   billingType BillingType
 
   interval      BillingInterval?
   intervalCount Int?
-  isActive Boolean @default(true)
+  isActive      Boolean          @default(true)
 
   metadata Json?
 
@@ -274,12 +278,13 @@ model ProductPlan {
   orders        Order[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([productId, code])
   @@index([productId])
   @@index([billingType])
 }
+
 model Subscription {
   id String @id @default(uuid())
 
@@ -294,7 +299,7 @@ model Subscription {
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
 
-  cancelAtPeriodEnd Boolean  @default(false)
+  cancelAtPeriodEnd Boolean   @default(false)
   cancelledAt       DateTime?
 
   metadata Json?
@@ -306,7 +311,7 @@ model Subscription {
   orders Order[]
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt@default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([productId])
   @@index([productUserId])
@@ -314,13 +319,13 @@ model Subscription {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
+  id String @id @default(uuid())
 
   // Core Required Info
-  userId      String?
-  userName    String?
+  userId        String?
+  userName      String?
   paymentStatus String?
-  timestamp   DateTime @default(now())
+  timestamp     DateTime @default(now())
 
   // Service Context
   serviceName String
@@ -328,24 +333,24 @@ model AuditLog {
   status      AuditStatus
 
   // Business References
-  productId   String?
-  apiKeyId    String?
-  orderId     String?
-  paymentId   String?
-  refundId    String?
+  productId      String?
+  apiKeyId       String?
+  orderId        String?
+  paymentId      String?
+  refundId       String?
   subscriptionId String?
 
   // Request Context (Helpful for Debugging & Security)
-  ipAddress   String?
-  httpMethod  String?
-  path        String?
-  requestId   String?
+  ipAddress  String?
+  httpMethod String?
+  path       String?
+  requestId  String?
 
   // Flexible Data Storage
-  metadata    Json?
+  metadata     Json?
   errorMessage String?
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([productId])
@@ -364,7 +369,7 @@ enum OrderStatus {
   FAILED
   CANCELLED
   REFUNDED
-  PARTIALLY_REFUNDED  
+  PARTIALLY_REFUNDED
 }
 
 enum IdempotencyStatus {
@@ -377,7 +382,7 @@ enum PaymentStatus {
   PROCESSING
   SUCCEEDED
   FAILED
-  CANCELLED 
+  CANCELLED
 }
 
 enum PaymentMethod {
