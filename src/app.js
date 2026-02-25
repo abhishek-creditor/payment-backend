@@ -18,6 +18,7 @@ app.use(auditLogger); // Log all incoming requests for auditing
 const paymentsRoutes = require("./routes/payments.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
+const productPlanRoutes = require("./routes/productPlan.routes");
 
 // Import middleware
 const authenticate = require("./middleware/auth");
@@ -60,6 +61,7 @@ app.get("/health", async (req, res) => {
 // For now, these routes are unprotected - SECURE THESE IN PRODUCTION!
 app.use("/api/products", productsRoutes);
 app.use("/api/keys", apiKeyRoutes);
+app.use("/api/product-plan",productPlanRoutes);
 
 // ============================================
 // PROTECTED API ROUTES (require API key)
