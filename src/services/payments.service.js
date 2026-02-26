@@ -79,7 +79,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       if (!latestPayment) {
         return {
           order: existingOrder,
-          duplicate: false,
+          duplicate: false, // Ye naya payment tha. Abhi tak payment create nahi hua tha, to is case me duplicate false hoga.
         };
       }
 
@@ -87,7 +87,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       if (latestPayment.status === "SUCCEEDED") {
         return {
           order: existingOrder,
-          duplicate: true,
+          duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek successful payment already exist karta hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
         };
       }
 
@@ -99,7 +99,7 @@ exports.createPayment = async (productId, data, options = {}) => {
         return {
           order: existingOrder,
           payment: latestPayment,
-          duplicate: true,
+          duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek payment already exist karta hai jo abhi processing me hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
         };
       }
 
@@ -114,11 +114,11 @@ exports.createPayment = async (productId, data, options = {}) => {
           status: "INITIATED",
           amount,
         });
-
+        console.log(`Retrying payment for existing order ${existingOrder.id} with new payment ${newPayment.id}`);
         return {
           order: existingOrder,
           payment: newPayment,
-          duplicate: false,
+          duplicate: false, // Ye duplicate nahi hai kyunki previous payment failed/cancelled tha, ab naya payment create kar rahe hain. Is case me retry allowed hai aur naya payment create hoga.
         };
       }
     }
@@ -144,6 +144,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       amount,
     });
 
+    console.log(`Created new order ${order.id} with payment ${payment.id}`);
     return {
       order,
       payment,
@@ -155,7 +156,7 @@ exports.createPayment = async (productId, data, options = {}) => {
   // IF DUPLICATE SUCCESS → RETURN
   // ==========================================
 
-  if (result.duplicate) {
+  if (result.duplicate) { // Duplicate case me Tilled call nahi karenge, existing order/payment ko hi reuse karenge.
     const latestPayment = result.order.payments?.sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     )[0];
@@ -163,7 +164,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     return {
       ...result.order,
       payments: latestPayment ? [latestPayment] : [],
-      duplicate: true,
+      duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek payment already exist karta hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
     };
   }
   const { order, payment } = result;
