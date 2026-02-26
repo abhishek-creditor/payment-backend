@@ -3,20 +3,30 @@ const service = require("../services/payments.service");
 /**
  * CREATE PAYMENT
  * POST /api/payments
+ * MOHD SHAHAVEZ CHANGE CREATE PAYMENT FUNC FOR CORRECT STATUS FUNCTIONALITY WITH MIDDLEWARE
  */
-exports.createPayment = async (req, res, next) => {
+exports.createPayment = async (req, res) => {
   try {
     const payment = await service.createPayment(
       req.productId,
       req.body,
       {
-        idempotencyKey: req.idempotencyKey // Forwarded from middleware
+        idempotencyKey: req.idempotencyKey, // Forwarded from middleware
       }
     );
 
-    return res.status(201).json({
+    // Extract latest payment status safely
+    const paymentStatus =
+      payment?.payments?.[0]?.status || null;
+
+    // HTTP status logic
+    const httpStatus = payment.duplicate ? 200 : 201;
+
+    return res.status(httpStatus).json({
       success: true,
-      data: payment
+      status: paymentStatus, // 👈 Important for middleware mapping
+      duplicate: payment.duplicate || false,
+      data: payment,
     });
 
   } catch (error) {
@@ -24,11 +34,10 @@ exports.createPayment = async (req, res, next) => {
 
     return res.status(error.statusCode || 500).json({
       success: false,
-      message: error.message || "Failed to create payment"
+      message: error.message || "Failed to create payment",
     });
   }
 };
-
 
 /**
  * GET ALL PAYMENTS
