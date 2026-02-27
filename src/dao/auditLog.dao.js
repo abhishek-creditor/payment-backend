@@ -8,8 +8,9 @@ class AuditLogDAO {
         data: {
           userId: data.userId || null,
           userName: data.userName || null,
-          serviceName: "payment-service",
-          eventType: "WEBHOOK_RECEIVED", // default for now
+          serviceName: "TESTING PURPOSE",
+          eventType: "API_CALL", // default for now, can be extended to more specific types like "PAYMENT_INITIATED", "WEBHOOK
+          // eventType: "WEBHOOK_RECEIVED", // default for now
           status: data.status,
           ipAddress: data.ipAddress || null,
           httpMethod: data.httpMethod,

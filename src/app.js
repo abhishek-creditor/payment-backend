@@ -3,7 +3,8 @@ const helmet = require("helmet");
 const cors = require("cors");
 const morgan = require("morgan");
 const prisma = require("./utils/prisma");
-const auditLogger = require("./middleware/auditLogger");
+// const auditLogger = require("./middleware/auditLogger");
+const adminOnly = require("./middleware/admin.middleware");
 
 const app = express();
 
@@ -12,13 +13,17 @@ app.use(helmet());
 app.use(express.json());
 app.use(cors()); // Allow all origins by default for now, or configure as needed
 app.use(morgan("combined"));
-app.use(auditLogger); // Log all incoming requests for auditing
+// app.use(auditLogger); // Log all incoming requests for auditing
 
 // Import routes
 const paymentsRoutes = require("./routes/payments.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
 const productPlanRoutes = require("./routes/productPlan.routes");
+const adminIdempotencyRoutes = require("./routes/admin.idempotency.routes");
+
+// use middleware for admin routes
+app.use("/admin/idempotency", adminOnly, adminIdempotencyRoutes);
 
 // Import middleware
 const authenticate = require("./middleware/auth");
