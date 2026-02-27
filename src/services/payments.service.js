@@ -211,117 +211,83 @@ exports.createPayment = async (productId, data, options = {}) => {
   // This ensures correct state flow:
   // INITIATED → PROCESSING → (SUCCEEDED / FAILED / CANCELLED)
   // The actual Tilled API call must happen AFTER this update.
-    // 3. Create or get Tilled Customer
-    let tilledCustomer = null;
-    const targetAccountId = resolvedAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
-  
-    if (productUser.tilledCustomerId) {
-      try {
-        const getCustomerResponse = await TilledService.getCustomer(productUser.tilledCustomerId, targetAccountId);
-        if (getCustomerResponse.statusCode >= 200 && getCustomerResponse.statusCode < 300) {
-          tilledCustomer = getCustomerResponse.data;
-        }
-      } catch (error) {
-        console.error(`Could not fetch existing Tilled customer ${productUser.tilledCustomerId}, will create a new one.`);
+  // 3. Create or get Tilled Customer
+  let tilledCustomer = null;
+  const targetAccountId = resolvedAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
+
+  if (productUser.tilledCustomerId) {
+    try {
+      const getCustomerResponse = await TilledService.getCustomer(productUser.tilledCustomerId, targetAccountId);
+      if (getCustomerResponse.statusCode >= 200 && getCustomerResponse.statusCode < 300) {
+        tilledCustomer = getCustomerResponse.data;
       }
+    } catch (error) {
+      console.error(`Could not fetch existing Tilled customer ${productUser.tilledCustomerId}, will create a new one.`);
     }
-  
-    if (!tilledCustomer) {
-      const tilledCustomerResponse = await TilledService.createCustomer({
-        email: resolvedEmail,
-        first_name: resolvedExternalUserId,
-        metadata: {
-          externalUserId: resolvedExternalUserId,
-          productId: productId
-        }
-      }, targetAccountId);
-      tilledCustomer = tilledCustomerResponse.data;
-  
-      // Update our DB with this most recent customer ID outside the main transaction
-      await productUserDAO.updateTilledCustomerId(null, productUser.id, tilledCustomer.id);
-    }
-  
-    // 4. Create Tilled Checkout Session
-    const lineItems = [{
-      price_data: {
-        currency: currency,
-        product_data: {
-          name: plan.name || `Plan ${plan.code}` || "Order Payment"
-        },
-        unit_amount: amount
-      },
-      quantity: 1
-    }];
-  
-    const tilledMetadata = buildTilledMetadata(order, plan.product, {
-      ...extraData,
-      planName: plan.name,
-      planCode: plan.code,
-    });
-  
-    const checkoutSessionResponse = await TilledService.createCheckoutSession({
-      customer_id: tilledCustomer.id,
-      line_items: lineItems,
-      mode: 'payment',
-      success_url: process.env.CLIENT_SUCCESS_URL || `https://www.example.com/success`,
-      cancel_url: process.env.CLIENT_CANCEL_URL || `https://www.example.com/cancel`,
-      payment_intent_data: {
-        description: `Order ${order.id}`,
-        setup_future_usage: "off_session",
-        payment_method_types: ["card"],
-        ...(platform_fee_amount !== undefined && platform_fee_amount !== null && { platform_fee_amount: Number(platform_fee_amount) })
-      },
-      metadata: tilledMetadata
+  }
+
+  if (!tilledCustomer) {
+    const tilledCustomerResponse = await TilledService.createCustomer({
+      email: resolvedEmail,
+      first_name: resolvedExternalUserId,
+      metadata: {
+        externalUserId: resolvedExternalUserId,
+        productId: productId
+      }
     }, targetAccountId);
-  
-    console.log("Checkout Session Response:", checkoutSessionResponse);
-  
-    const checkoutSession = checkoutSessionResponse.data;
-  
-    if (checkoutSessionResponse.statusCode >= 400) {
-      throw new Error(`Tilled Error: ${checkoutSession.message || checkoutSession.error || 'Failed to create checkout session'}`);
-    }
+    tilledCustomer = tilledCustomerResponse.data;
+
+    // Update our DB with this most recent customer ID outside the main transaction
+    await productUserDAO.updateTilledCustomerId(null, productUser.id, tilledCustomer.id);
+  }
+
+  // 4. Create Tilled Checkout Session
+  const lineItems = [{
+    price_data: {
+      currency: currency,
+      product_data: {
+        name: plan.name || `Plan ${plan.code}` || "Order Payment"
+      },
+      unit_amount: amount
+    },
+    quantity: 1
+  }];
+
+  const tilledMetadata = buildTilledMetadata(order, plan.product, {
+    ...extraData,
+    planName: plan.name,
+    planCode: plan.code,
+  });
+
+  const checkoutSessionResponse = await TilledService.createCheckoutSession({
+    customer_id: tilledCustomer.id,
+    line_items: lineItems,
+    mode: 'payment',
+    success_url: process.env.CLIENT_SUCCESS_URL || `https://www.example.com/success`,
+    cancel_url: process.env.CLIENT_CANCEL_URL || `https://www.example.com/cancel`,
+    payment_intent_data: {
+      description: `Order ${order.id}`,
+      setup_future_usage: "off_session",
+      payment_method_types: ["card"],
+      ...(platform_fee_amount !== undefined && platform_fee_amount !== null && { platform_fee_amount: Number(platform_fee_amount) })
+    },
+    metadata: tilledMetadata
+  }, targetAccountId);
+
+  console.log("Checkout Session Response:", checkoutSessionResponse);
+
+  const checkoutSession = checkoutSessionResponse.data;
+
+  if (checkoutSessionResponse.statusCode >= 400) {
+    throw new Error(`Tilled Error: ${checkoutSession.message || checkoutSession.error || 'Failed to create checkout session'}`);
+  }
 
   await prisma.payment.update({
     where: { id: payment.id },
-    data: { status: "PROCESSING" },
-  });
-
-  let finalStatus = "PROCESSING";
-
-  try {
-    // TILLED TEAM: Implement actual Tilled API call here
-    // const tilledResponse = await tilled.createPayment(...);
-
-    // After receiving Tilled response,
-    // set finalStatus accordingly:
-    // finalStatus = "SUCCEEDED" | "FAILED" | "CANCELLED";
-
-    finalStatus = "SUCCEEDED"; // temporary simulation
-  } catch (err) {
-    finalStatus = "FAILED";
-  }
-
-  // ==========================================
-  // STEP 3: UPDATE PAYMENT + ORDER
-  // ==========================================
-
-  await prisma.$transaction(async (tx) => {
-    await paymentDAO.updatePayment(tx, payment.id, {
-      status: finalStatus,
-    });
-
-    if (finalStatus === "SUCCEEDED") {
-      await orderDAO.updateOrder(tx, order.id, {
-        status: "PAID",
-      });
-    }
-
-    if (finalStatus === "FAILED") {
-      await orderDAO.updateOrder(tx, order.id, {
-        status: "PAYMENT_FAILED",
-      });
-    }
+    data: {
+      status: "PROCESSING",
+      tilledPaymentId: checkoutSession.payment_intent_id
+    },
   });
 
   return {
@@ -329,11 +295,30 @@ exports.createPayment = async (productId, data, options = {}) => {
     payments: [
       {
         ...payment,
-        status: finalStatus,
+        status: "PROCESSING",
       },
     ],
     duplicate: false,
+    checkoutUrl: checkoutSession?.url,
   };
+};
+
+/**
+ * GET PAYMENTS
+ */
+exports.getPayments = async (productId, query = {}) => {
+  return await orderDAO.getOrders(null, { ...query, productId });
+};
+
+/**
+ * GET PAYMENT BY ID
+ */
+exports.getPaymentById = async (productId, id) => {
+  return await orderDAO.getOrderByIdAndProduct(null, id, productId, {
+    items: true,
+    payments: true,
+    productUser: true,
+  });
 };
 
 /**
@@ -406,9 +391,12 @@ exports.refundPayment = async (
     return { refund, payment: successfulPayment };
   });
 
+  // TILLED TEAM: Implement actual Tilled API call here
+  // const tilledRefund = await TilledService.refundPayment(...);
+
   await refundDAO.updateRefund(null, refund.id, {
     status: "SUCCEEDED",
-    tilledRefundId: tilledRefund.id,
+    tilledRefundId: "simulated_tilled_refund_id",
   });
 
   return refund;
