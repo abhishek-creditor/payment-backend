@@ -4,6 +4,7 @@ const orderDAO = require("../dao/order.dao");
 const paymentDAO = require("../dao/payment.dao");
 const refundDAO = require("../dao/refund.dao");
 const TilledService = require("./tilled.service");
+const { buildTilledMetadata } = require("./tilledMetadata.service");
 
 // Assume Tilled SDK instance
 
@@ -21,21 +22,33 @@ exports.createPayment = async (productId, data, options = {}) => {
 
   const {
     externalUserId,
+    productUserId,
     email,
+    user_email,
     referenceId,
     plan_code,
     paymentMethod = "CARD",
-    tilledAccountId
+    tilledAccountId,
+    account_id,
+    extraData = {}
   } = data;
+
+  const resolvedExternalUserId = externalUserId || productUserId;
+  const resolvedEmail = email || user_email;
+  const resolvedAccountId = tilledAccountId || account_id;
   const normalizedPlanCode = String(plan_code).trim();
   const plan = await prisma.productPlan.findFirst({
     where: {
       productId,
       code: normalizedPlanCode,
       isActive: true
+    },
+    include: {
+      product: true
     }
   });
   if (!plan) {
+    console.log("Invalid plan_code", normalizedPlanCode);
     throw new Error("Invalid plan_code");
   }
   if (!plan.price || !plan.currency) {
@@ -52,8 +65,8 @@ exports.createPayment = async (productId, data, options = {}) => {
     const productUser = await productUserDAO.upsertProductUser(
       tx,
       productId,
-      externalUserId,
-      email
+      resolvedExternalUserId,
+      resolvedEmail
     );
 
     const existingOrder = await orderDAO.getOrderByReferenceId(
@@ -63,6 +76,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     );
 
     if (existingOrder) {
+      console.log("🔁 Duplicate order detected");
       return {
         order: existingOrder,
         duplicate: true
@@ -90,6 +104,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       method: paymentMethod,
       status: "INITIATED"
     });
+    console.log("Payment created:", payment);
 
     return { order, payment, duplicate: false, productUser };
   });
@@ -105,7 +120,7 @@ exports.createPayment = async (productId, data, options = {}) => {
   }
   // 3. Create or get Tilled Customer
   let tilledCustomer = null;
-  const targetAccountId = tilledAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
+  const targetAccountId = resolvedAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
 
   if (productUser.tilledCustomerId) {
     try {
@@ -120,10 +135,10 @@ exports.createPayment = async (productId, data, options = {}) => {
 
   if (!tilledCustomer) {
     const tilledCustomerResponse = await TilledService.createCustomer({
-      email: email,
-      first_name: externalUserId,
+      email: resolvedEmail,
+      first_name: resolvedExternalUserId,
       metadata: {
-        externalUserId: externalUserId,
+        externalUserId: resolvedExternalUserId,
         productId: productId
       }
     }, targetAccountId);
@@ -145,6 +160,12 @@ exports.createPayment = async (productId, data, options = {}) => {
     quantity: 1
   }];
 
+  const tilledMetadata = buildTilledMetadata(order, plan.product, {
+    ...extraData,
+    planName: plan.name,
+    planCode: plan.code,
+  });
+
   const checkoutSessionResponse = await TilledService.createCheckoutSession({
     customer_id: tilledCustomer.id,
     line_items: lineItems,
@@ -156,11 +177,10 @@ exports.createPayment = async (productId, data, options = {}) => {
       setup_future_usage: "off_session",
       payment_method_types: ["card"]
     },
-    metadata: {
-      orderId: order.id,
-      productId: productId
-    }
+    metadata: tilledMetadata
   }, targetAccountId);
+
+  console.log("Checkout Session Response:", checkoutSessionResponse);
 
   const checkoutSession = checkoutSessionResponse.data;
 
@@ -170,7 +190,7 @@ exports.createPayment = async (productId, data, options = {}) => {
 
   // Update payment record with Tilled info
   await paymentDAO.updatePayment(null, payment.id, {
-    tilledPaymentId: checkoutSession.payment_intent,
+    tilledPaymentId: checkoutSession.payment_intent_id,
     rawResponse: checkoutSession
   });
 
@@ -178,7 +198,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     ...order,
     payments: [{
       ...payment,
-      tilledPaymentId: checkoutSession.payment_intent,
+      tilledPaymentId: checkoutSession.payment_intent_id,
       status: "INITIATED",
       rawResponse: checkoutSession
     }],

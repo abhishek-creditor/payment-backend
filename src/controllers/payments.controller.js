@@ -13,8 +13,9 @@ exports.createPayment = async (req, res, next) => {
         idempotencyKey: req.idempotencyKey // Forwarded from middleware
       }
     );
+    const statusCode = payment.__duplicate ? 200 : 201;
 
-    return res.status(201).json({
+    return res.status(statusCode).json({
       success: true,
       data: payment
     });

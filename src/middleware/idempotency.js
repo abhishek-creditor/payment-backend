@@ -81,12 +81,14 @@ module.exports = async function idempotency(req, res, next) {
         expiresAt,
       },
     });
+    console.log("Idempotency Key inserted");
 
     isOwner = true;
     res.setHeader("Idempotency-Replayed", "false");
 
   } catch {
     // Already exists
+    console.log("Idempotency Key already exists");
     record = await prisma.idempotencyKey.findUnique({
       where: uniqueWhere,
     });
@@ -108,9 +110,10 @@ module.exports = async function idempotency(req, res, next) {
     if (record.status === "COMPLETED") {
       res.setHeader("Idempotency-Replayed", "true");
       return res
-        .status(record.responseStatusCode || 200)
+        .status(200) // Changed to 200 for idempotency replayed payload
         .json(record.responseBody);
     }
+    //for now code is not going forward from here
 
     // IN_PROGRESS handling
     const age =
