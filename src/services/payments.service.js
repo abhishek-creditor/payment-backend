@@ -30,6 +30,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     paymentMethod = "CARD",
     tilledAccountId,
     account_id,
+    platform_fee_amount,
     extraData = {}
   } = data;
 
@@ -175,7 +176,8 @@ exports.createPayment = async (productId, data, options = {}) => {
     payment_intent_data: {
       description: `Order ${order.id}`,
       setup_future_usage: "off_session",
-      payment_method_types: ["card"]
+      payment_method_types: ["card"],
+      ...(platform_fee_amount !== undefined && platform_fee_amount !== null && { platform_fee_amount: Number(platform_fee_amount) })
     },
     metadata: tilledMetadata
   }, targetAccountId);
