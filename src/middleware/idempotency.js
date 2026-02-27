@@ -42,7 +42,7 @@ module.exports = async function idempotency(req, res, next) {
     .digest("hex");
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000);
+  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000); // Record expiration time for safe retry after TTL expiration 
 
   const uniqueWhere = {
     productId_key_method_path: {
