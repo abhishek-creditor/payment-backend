@@ -2,27 +2,18 @@ const crypto = require("crypto");
 const stringify = require("fast-json-stable-stringify");
 const prisma = require("../utils/prisma");
 
+// 50 minutes TTL time (via .env) after that Record will auto-expire and allow new requests with same key and delete
 const IDEMPOTENCY_TTL_SECONDS = parseInt(
-  process.env.IDEMPOTENCY_TTL_SECONDS || "86400",
-  10
+  process.env.IDEMPOTENCY_TTL_SECONDS || "3000",
+  10,
 );
 
+// In-Progress Timeout (e.g. 60 seconds) to prevent stale locks
+// work only if system crash down etc.
 const IN_PROGRESS_TIMEOUT_SECONDS = parseInt(
   process.env.IDEMPOTENCY_IN_PROGRESS_TIMEOUT || "60",
-  10
+  10,
 );
-
-/**
- * Production-Ready Idempotency Middleware
- * ---------------------------------------
- * Guarantees:
- * - Request replay safety
- * - Crash safety
- * - Concurrency safety
- * - Safe retries on 5xx
- * - Stable hashing
- * - Forwarding to Tilled
- */
 
 module.exports = async function idempotency(req, res, next) {
   const key = req.header("Idempotency-Key");
@@ -31,7 +22,6 @@ module.exports = async function idempotency(req, res, next) {
   const productId = req.productId;
   if (!productId) return next();
 
-  // Attach for downstream forwarding (CRITICAL)
   req.idempotencyKey = key;
 
   const method = req.method.toUpperCase();
@@ -41,19 +31,18 @@ module.exports = async function idempotency(req, res, next) {
     path = path.slice(0, -1);
   }
 
-  // Stable body hash
   const requestHash = crypto
     .createHash("sha256")
     .update(
       stringify({
         body: req.body ?? null,
         query: req.query ?? null,
-      })
+      }),
     )
     .digest("hex");
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000);
+  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000); // Record expiration time for safe retry after TTL expiration 
 
   const uniqueWhere = {
     productId_key_method_path: {
@@ -68,7 +57,7 @@ module.exports = async function idempotency(req, res, next) {
   let isOwner = false;
 
   try {
-    // CREATE-FIRST pattern (atomic protection)
+    // CREATE-FIRST (Atomic Lock)
     record = await prisma.idempotencyKey.create({
       data: {
         productId,
@@ -84,27 +73,36 @@ module.exports = async function idempotency(req, res, next) {
 
     isOwner = true;
     res.setHeader("Idempotency-Replayed", "false");
-
   } catch {
-    // Already exists
     record = await prisma.idempotencyKey.findUnique({
       where: uniqueWhere,
     });
 
     if (!record) {
       return res.status(500).json({
-        error: "Idempotency lookup failed",
+        error: "Idempotency lookup failed RECORD_NOT_FOUND",
       });
     }
 
-    // Payload mismatch
+    // TTL CLEANUP ONLY FOR FAILED / CANCELLED
+    if (
+      record.expiresAt &&
+      record.expiresAt < new Date() &&
+      (record.status === "FAILED" || record.status === "CANCELLED")
+    ) {
+      await prisma.idempotencyKey.delete({
+        where: { id: record.id },
+      });
+      return next();
+    }
+
     if (record.requestHash !== requestHash) {
       return res.status(409).json({
         error: "Idempotency-Key reused with different payload",
       });
     }
 
-    // Replay if completed
+    // COMPLETED → Replay
     if (record.status === "COMPLETED") {
       res.setHeader("Idempotency-Replayed", "true");
       return res
@@ -112,30 +110,56 @@ module.exports = async function idempotency(req, res, next) {
         .json(record.responseBody);
     }
 
-    // IN_PROGRESS handling
-    const age =
-      (Date.now() - new Date(record.createdAt).getTime()) / 1000;
+    // IN_PROGRESS Handling
+    if (record.status === "IN_PROGRESS") {
+      if (record.responseBody) {
+        res.setHeader("Idempotency-Replayed", "true");
+        return res
+          .status(record.responseStatusCode || 200)
+          .json(record.responseBody);
+      }
 
-    if (age < IN_PROGRESS_TIMEOUT_SECONDS) {
-      return res.status(409).json({
-        error: "Request is currently processing",
+      // IMPORTANT:
+      // Prevent duplicate order creation using referenceId.
+      // Even on retry or crash recovery, same order will be reused.
+      // work only if system down, crash etc.
+      const age = (Date.now() - new Date(record.createdAt).getTime()) / 1000;
+      // 60 seonds se kam hai to processing me hai aur 60 seconds se zyada hai retry karlo
+      if (age < IN_PROGRESS_TIMEOUT_SECONDS) {
+        return res.status(409).json({
+          error: "Request is currently processing",
+        });
+      }
+
+      // Stale lock recovery
+      await prisma.idempotencyKey.update({
+        where: { id: record.id },
+        data: {
+          status: "IN_PROGRESS",
+          requestHash,
+          expiresAt,
+        },
       });
+
+      isOwner = true; // Allow this request to proceed Q ki ya Request new owner bana raha hai stale lock ka
+      res.setHeader("Idempotency-Replayed", "false");
     }
 
-    // Stale lock recovery
-    await prisma.idempotencyKey.update({
-      where: { id: record.id },
-      data: {
-        requestHash,
-        expiresAt,
-        status: "IN_PROGRESS",
-      },
-    });
-
-    isOwner = true;
-    res.setHeader("Idempotency-Replayed", "false");
+    // FAILED / CANCELLED → Allow Retry
+    if (record.status === "FAILED" || record.status === "CANCELLED") {
+      await prisma.idempotencyKey.delete({
+        where: { id: record.id },
+      });
+      return next();
+    }
   }
 
+  // IMPORTANT:
+// Sirf wahi request idempotency record finalize karegi jo lock ki owner hai.
+// Agar ye request owner nahi hai (duplicate / replay case),
+// to aage ka status update logic run nahi hoga.
+// Isse multiple requests ek hi record ko modify nahi kar sakti
+// aur race condition prevent hoti hai.
   if (!isOwner) return;
 
   const recordId = record.id;
@@ -152,7 +176,7 @@ module.exports = async function idempotency(req, res, next) {
     try {
       const statusCode = res.__statusCode ?? 200;
 
-      // 5xx from Tilled → allow retry
+      // 5xx → delete (retry allowed)
       if (statusCode >= 500) {
         await prisma.idempotencyKey.delete({
           where: { id: recordId },
@@ -160,16 +184,40 @@ module.exports = async function idempotency(req, res, next) {
         return originalJson(body);
       }
 
-      // Success or client error → finalize
+      // SAFE STATUS MAPPING
+      const paymentStatus = body?.status || body?.data?.payments?.[0]?.status;
+
+      // If status not found → allow safe retry
+      if (!paymentStatus) {
+        await prisma.idempotencyKey.delete({
+          where: { id: recordId },
+        });
+        return originalJson(body);
+      }
+
+      let finalStatus;
+
+      if (paymentStatus === "FAILED") {
+        finalStatus = "FAILED";
+      } else if (paymentStatus === "CANCELLED") {
+        finalStatus = "CANCELLED";
+      } else if (
+        paymentStatus === "INITIATED" ||
+        paymentStatus === "PROCESSING"
+      ) {
+        finalStatus = "IN_PROGRESS";
+      } else if (paymentStatus === "SUCCEEDED") {
+        finalStatus = "COMPLETED";
+      }
+
       await prisma.idempotencyKey.update({
         where: { id: recordId },
         data: {
-          status: "COMPLETED",
+          status: finalStatus,
           responseStatusCode: statusCode,
           responseBody: body,
         },
       });
-
     } catch (err) {
       console.error("Idempotency finalize error:", err);
     }
