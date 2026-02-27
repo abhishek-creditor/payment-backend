@@ -3,7 +3,7 @@ const prisma = require("../utils/prisma");
 class OrderDAO {
   /**
    * Create a new order with items
-   * @param {Object} tx - Prisma transaction client (optional)
+   * @param {Object} tx - Prisma transaction client (optional) 
    * @param {Object} orderData - Order data
    * @returns {Promise<Object>} Order
    */
@@ -53,7 +53,7 @@ class OrderDAO {
     } catch (error) {
       // Handle unique constraint safely
       if (error.code === "P2002") {
-        
+
         // Duplicate detected based on unique constraint (e.g., referenceId + productId)
         console.warn("[IDEMPOTENCY] Duplicate detected", {
           productId: orderData.productId,
@@ -103,19 +103,19 @@ class OrderDAO {
       payments:
         includeOptions.payments !== false
           ? {
-              include: {
-                refunds: includeOptions.refunds !== false,
-              },
-            }
+            include: {
+              refunds: includeOptions.refunds !== false,
+            },
+          }
           : false,
       productUser:
         includeOptions.productUser !== false
           ? {
-              select: {
-                externalUserId: true,
-                email: true,
-              },
-            }
+            select: {
+              externalUserId: true,
+              email: true,
+            },
+          }
           : false,
     };
 
@@ -141,19 +141,19 @@ class OrderDAO {
       payments:
         includeOptions.payments !== false
           ? {
-              include: {
-                refunds: includeOptions.refunds !== false,
-              },
-            }
+            include: {
+              refunds: includeOptions.refunds !== false,
+            },
+          }
           : false,
       productUser:
         includeOptions.productUser !== false
           ? {
-              select: {
-                externalUserId: true,
-                email: true,
-              },
-            }
+            select: {
+              externalUserId: true,
+              email: true,
+            },
+          }
           : false,
     };
 
