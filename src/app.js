@@ -19,6 +19,7 @@ const paymentsRoutes = require("./routes/payments.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
 const productPlanRoutes = require("./routes/productPlan.routes");
+const crudOperationRoutes = require("./routes/CRUD.routes");
 
 // Import middleware
 const authenticate = require("./middleware/auth");
@@ -62,6 +63,7 @@ app.get("/health", async (req, res) => {
 app.use("/api/products", productsRoutes);
 app.use("/api/keys", apiKeyRoutes);
 app.use("/api/product-plan",productPlanRoutes);
+app.use("/api/crud",crudOperationRoutes);
 
 // ============================================
 // PROTECTED API ROUTES (require API key)
