@@ -13,8 +13,15 @@ class OrderDAO {
     try {
       const order = await client.order.create({
         data: {
-          productId: orderData.productId,
-          productUserId: orderData.productUserId,
+           product: {         //used connect to structure the code in a way prisma is accepting
+              connect: { id: orderData.productId },
+          },
+           productUser: {
+              connect: { id: orderData.productUserId },
+          },
+           plan: {                                 
+              connect: { id: orderData.planId },
+          },
           referenceId: orderData.referenceId,
           amount: orderData.amount,
           currency: orderData.currency,

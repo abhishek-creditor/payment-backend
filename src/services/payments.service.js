@@ -71,6 +71,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     const order = await orderDAO.createOrder(tx, {
       productId,
       productUserId: productUser.id,
+      planId: plan.id,   //added this as order table expects required relation with plan table for which we need id
       referenceId,
       amount,
       currency,
