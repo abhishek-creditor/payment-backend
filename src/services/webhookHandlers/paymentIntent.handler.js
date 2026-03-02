@@ -1,6 +1,6 @@
 const paymentDAO = require("../../dao/payment.dao");
 const orderDAO = require("../../dao/order.dao");
-const prisma = require("../../utils/prisma");
+const prisma = require("../../config/prismaClient");
 
 exports.handlePaymentIntentSucceeded = async (event) => {
     const paymentIntent = event.data;
