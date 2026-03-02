@@ -26,11 +26,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     email,
     user_email,
     referenceId,
-<<<<<<< HEAD
-    plan_id,
-=======
     productPlanId,
->>>>>>> 3c258282f821f142ac4d7a828f1e6a140730b87a
     paymentMethod = "CARD",
     tilledAccountId,
     account_id,
@@ -52,10 +48,6 @@ exports.createPayment = async (productId, data, options = {}) => {
     where: {
       id: productPlanId,
       productId,
-<<<<<<< HEAD
-      plan_id,
-=======
->>>>>>> 3c258282f821f142ac4d7a828f1e6a140730b87a
       isActive: true
     },
     include: {
@@ -63,12 +55,8 @@ exports.createPayment = async (productId, data, options = {}) => {
     }
   });
   if (!plan) {
-<<<<<<< HEAD
-    throw new Error("Invalid plan_id");
-=======
     console.log("Invalid productPlanId", productPlanId);
     throw new Error("Invalid productPlanId");
->>>>>>> 3c258282f821f142ac4d7a828f1e6a140730b87a
   }
   if (!plan.price || !plan.currency) {
     throw new Error("Invalid plan configuration");
