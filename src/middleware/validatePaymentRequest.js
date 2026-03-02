@@ -65,6 +65,12 @@ exports.validateCreatePayment = [
     .optional()
     .isNumeric().withMessage("platform_fee_amount must be a number"),
 
-  
+  // ✅ PRODUCT PLAN ID REQUIRED (UUID string)
+  body("productPlanId")
+    .exists().withMessage("productPlanId is required")
+    .isString().withMessage("productPlanId must be a string")
+    .trim()
+    .notEmpty().withMessage("productPlanId cannot be empty"),
+
   handleValidation
 ];
