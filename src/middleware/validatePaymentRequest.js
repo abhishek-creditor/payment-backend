@@ -65,14 +65,12 @@ exports.validateCreatePayment = [
     .optional()
     .isNumeric().withMessage("platform_fee_amount must be a number"),
 
-  // ✅ PLAN CODE REQUIRED (string OR number)
-  body("plan_code")
-    .exists().withMessage("plan_code is required")
-    .custom(value => {
-      if (typeof value === "string" && value.trim() !== "") return true;
-      if (typeof value === "number") return true;
-      throw new Error("plan_code must be a non-empty string or number");
-    }),
+  // ✅ PRODUCT PLAN ID REQUIRED (UUID string)
+  body("productPlanId")
+    .exists().withMessage("productPlanId is required")
+    .isString().withMessage("productPlanId must be a string")
+    .trim()
+    .notEmpty().withMessage("productPlanId cannot be empty"),
 
   handleValidation
 ];

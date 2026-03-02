@@ -1,7 +1,9 @@
 const TilledService = require("../services/tilled.service");
-const paymentDAO = require("../dao/payment.dao");
-const orderDAO = require("../dao/order.dao");
-const prisma = require("../utils/prisma");
+const webhookEventDAO = require("../dao/webhookEvent.dao");
+const paymentIntentHandler = require("../services/webhookHandlers/paymentIntent.handler");
+const customerHandler = require("../services/webhookHandlers/customer.handler");
+const subscriptionHandler = require("../services/webhookHandlers/subscription.handler");
+const chargeHandler = require("../services/webhookHandlers/charge.handler");
 
 exports.webhook = async (req, res) => {
     const signature = req.headers["tilled-signature"];
@@ -13,7 +15,6 @@ exports.webhook = async (req, res) => {
 
     try {
         // 1. Verify Signature
-        // We assume app.js has been configured to store the raw body in req.rawBody
         const rawBodyContent = req.rawBody || JSON.stringify(req.body);
 
         try {
@@ -28,70 +29,87 @@ exports.webhook = async (req, res) => {
         const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
         console.log(`Received Tilled webhook event: ${event.type}`);
 
-        // 3. Handle Event
-        switch (event.type) {
-            case "payment_intent.succeeded": {
-                const paymentIntent = event.data;
-                const tilledPaymentId = paymentIntent.id;
+        // 3. Save Webhook Event to DB
+        let dbEvent;
+        try {
+            dbEvent = await webhookEventDAO.createEvent(null, {
+                eventType: event.type,
+                tilledId: event.id,
+                payload: event
+            });
+        } catch (err) {
+            console.error("Failed to save webhook to DB:", err.message);
+            // We continue processing even if logging fails
+        }
 
-                console.log(`Processing successful payment intent: ${tilledPaymentId}`);
+        // 4. Handle Event
+        try {
+            switch (event.type) {
+                // ==========================
+                // PAYMENT INTENT EVENTS
+                // ==========================
+                case "payment_intent.succeeded":
+                    await paymentIntentHandler.handlePaymentIntentSucceeded(event);
+                    break;
+                case "payment_intent.payment_failed":
+                    await paymentIntentHandler.handlePaymentIntentFailed(event);
+                    break;
+                case "payment_intent.canceled":
+                    await paymentIntentHandler.handlePaymentIntentCanceled(event);
+                    break;
 
-                // Find the corresponding payment in our database
-                const payment = await paymentDAO.getPaymentByTilledId(null, tilledPaymentId);
+                // ==========================
+                // CUSTOMER EVENTS
+                // ==========================
+                case "customer.created":
+                case "customer.updated":
+                    await customerHandler.handleCustomerEvent(event);
+                    break;
 
-                if (!payment) {
-                    console.error(`Payment not found for Tilled Payment ID: ${tilledPaymentId}`);
-                    return res.status(200).json({ received: true, message: "Payment not found but acknowledged" });
-                }
+                // ==========================
+                // SUBSCRIPTION EVENTS
+                // ==========================
+                case "subscription.created":
+                    await subscriptionHandler.handleSubscriptionCreated(event);
+                    break;
 
-                // Update Payment status to SUCCEEDED and Order status to PAID
-                await prisma.$transaction(async (tx) => {
-                    await paymentDAO.updatePayment(tx, payment.id, {
-                        status: "SUCCEEDED",
-                        rawResponse: paymentIntent
-                    });
+                case "subscription.updated":
+                    await subscriptionHandler.handleSubscriptionUpdated(event);
+                    break;
 
-                    await orderDAO.updateOrder(tx, payment.orderId, {
-                        status: "PAID"
-                    });
-                });
+                case "subscription.canceled":
+                    await subscriptionHandler.handleSubscriptionCanceled(event);
+                    break;
 
-                console.log(`Successfully updated order ${payment.orderId} to PAID.`);
-                break;
+                // ==========================
+                // CHARGE / INVOICE LOGGING
+                // ==========================
+                case "charge.succeeded":
+                case "charge.failed":
+                case "charge.refunded":
+                    await chargeHandler.handleChargeEvent(event);
+                    break;
+
+                default:
+                    console.log(`Unhandled or purely logged event type: ${event.type}`);
             }
 
-            case "payment_intent.payment_failed": {
-                const paymentIntent = event.data;
-                const tilledPaymentId = paymentIntent.id;
-
-                console.log(`Processing failed payment intent: ${tilledPaymentId}`);
-
-                const payment = await paymentDAO.getPaymentByTilledId(null, tilledPaymentId);
-
-                if (payment) {
-                    await prisma.$transaction(async (tx) => {
-                        await paymentDAO.updatePayment(tx, payment.id, {
-                            status: "FAILED",
-                            rawResponse: paymentIntent
-                        });
-
-                        await orderDAO.updateOrder(tx, payment.orderId, {
-                            status: "FAILED"
-                        });
-                    });
-                }
-                break;
+            // Mark Webhook as Processed
+            if (dbEvent) {
+                await webhookEventDAO.markAsProcessed(null, dbEvent.id);
             }
 
-            default:
-                console.log(`Unhandled event type: ${event.type}`);
+        } catch (err) {
+            console.error(`Error processing webhook event '${event.type}':`, err);
+            // Return 500 if the internal logic fails so Tilled retries
+            return res.status(500).send("Internal processing error");
         }
 
         // Return a 200 response to acknowledge receipt of the event
         res.json({ received: true });
 
     } catch (error) {
-        console.error(`Webhook Error: ${error.message}`);
+        console.error(`Webhook Wrapper Error: ${error.message}`);
         res.status(500).send("Internal Server Error");
     }
 };

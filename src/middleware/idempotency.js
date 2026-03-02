@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const stringify = require("fast-json-stable-stringify");
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 
 // 50 minutes TTL time (via .env) after that Record will auto-expire and allow new requests with same key and delete
 const IDEMPOTENCY_TTL_SECONDS = parseInt(

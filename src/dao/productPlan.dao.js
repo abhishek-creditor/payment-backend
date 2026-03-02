@@ -1,5 +1,5 @@
 // dao/productPlan.dao.js
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 
 const productPlanDao = {
 

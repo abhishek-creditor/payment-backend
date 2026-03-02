@@ -1,4 +1,4 @@
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 const productUserDAO = require("../dao/productUser.dao");
 const orderDAO = require("../dao/order.dao");
 const paymentDAO = require("../dao/payment.dao");
@@ -26,7 +26,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     email,
     user_email,
     referenceId,
-    plan_code,
+    productPlanId,
     paymentMethod = "CARD",
     tilledAccountId,
     account_id,
@@ -38,7 +38,6 @@ exports.createPayment = async (productId, data, options = {}) => {
   const resolvedExternalUserId = externalUserId || productUserId;
   const resolvedEmail = email || user_email;
   const resolvedAccountId = tilledAccountId || account_id;
-  const normalizedPlanCode = String(plan_code).trim();
   const items = Array.isArray(rawItems)
     ? rawItems
     : Array.isArray(extraData?.items)
@@ -47,8 +46,8 @@ exports.createPayment = async (productId, data, options = {}) => {
 
   const plan = await prisma.productPlan.findFirst({
     where: {
+      id: productPlanId,
       productId,
-      code: normalizedPlanCode,
       isActive: true
     },
     include: {
@@ -56,8 +55,8 @@ exports.createPayment = async (productId, data, options = {}) => {
     }
   });
   if (!plan) {
-    console.log("Invalid plan_code", normalizedPlanCode);
-    throw new Error("Invalid plan_code");
+    console.log("Invalid productPlanId", productPlanId);
+    throw new Error("Invalid productPlanId");
   }
   if (!plan.price || !plan.currency) {
     throw new Error("Invalid plan configuration");
@@ -214,22 +213,24 @@ exports.createPayment = async (productId, data, options = {}) => {
   // 3. Create or get Tilled Customer
   let tilledCustomer = null;
   const targetAccountId = resolvedAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
+  const resolvedName = data.name || data.user_name || resolvedExternalUserId;
 
-  if (productUser.tilledCustomerId) {
+  const existingCustomerId = productUser.tilledCustomerId || extraData?.userTilledId;
+  if (existingCustomerId) {
     try {
-      const getCustomerResponse = await TilledService.getCustomer(productUser.tilledCustomerId, targetAccountId);
+      const getCustomerResponse = await TilledService.getCustomer(existingCustomerId, targetAccountId);
       if (getCustomerResponse.statusCode >= 200 && getCustomerResponse.statusCode < 300) {
         tilledCustomer = getCustomerResponse.data;
       }
     } catch (error) {
-      console.error(`Could not fetch existing Tilled customer ${productUser.tilledCustomerId}, will create a new one.`);
+      console.error(`Could not fetch existing Tilled customer ${existingCustomerId}, will create a new one.`);
     }
   }
 
   if (!tilledCustomer) {
     const tilledCustomerResponse = await TilledService.createCustomer({
       email: resolvedEmail,
-      first_name: resolvedExternalUserId,
+      first_name: resolvedName,
       metadata: {
         externalUserId: resolvedExternalUserId,
         productId: productId
@@ -255,16 +256,17 @@ exports.createPayment = async (productId, data, options = {}) => {
 
   const tilledMetadata = buildTilledMetadata(order, plan.product, {
     ...extraData,
+    externalUserId: resolvedExternalUserId,
     planName: plan.name,
-    planCode: plan.code,
+    planId: plan.id,
   });
 
   const checkoutSessionResponse = await TilledService.createCheckoutSession({
     customer_id: tilledCustomer.id,
     line_items: lineItems,
     mode: 'payment',
-    success_url: process.env.CLIENT_SUCCESS_URL || `https://www.example.com/success`,
-    cancel_url: process.env.CLIENT_CANCEL_URL || `https://www.example.com/cancel`,
+    success_url: 'https://payment-pagess.netlify.app/success',
+    cancel_url: 'https://payment-pagess.netlify.app/cancelled',
     payment_intent_data: {
       description: `Order ${order.id}`,
       setup_future_usage: "off_session",
