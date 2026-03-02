@@ -40,12 +40,12 @@ exports.create = async (req, res) => {
     }
 
     const config = await service.createConfig(req.body);
-
+    console.log(`Created new webhook config with ID: ${config.id} for product ${productId} and event ${triggerEvent}`);
     res.status(201).json(config);
 
   } catch (err) {
     res.status(500).json({
-      message: "Internal server error"
+      message: "Hey I'm Controller Some error occurred while creating webhook config"
     });
   }
 };
