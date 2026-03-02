@@ -57,7 +57,7 @@ exports.deletePayment = async (req, res) => {
 //refund
 exports.createRefund = async (req, res) => {
   try {
-    const refund = await crudservice.createRefundWithStatusUpdate(req.body);
+    const refund = await crudservice.createRefund(req.body);
     res.json(refund);
   } catch (error) {
     res.status(400).json({ message: error.message });

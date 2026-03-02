@@ -53,7 +53,7 @@ exports.createRefund = async (data) => {
       throw new Error("Payment not found");
     }
 
-    if (payment.status !== "SUCCESS" && payment.status !== "PARTIALLY_REFUNDED") {
+    if (payment.status !== "SUCCEEDED") {
       throw new Error("Refund not allowed for this payment status");
     }
 
