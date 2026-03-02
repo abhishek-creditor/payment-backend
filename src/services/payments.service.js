@@ -26,7 +26,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     email,
     user_email,
     referenceId,
-    plan_code,
+    plan_id,
     paymentMethod = "CARD",
     tilledAccountId,
     account_id,
@@ -38,7 +38,6 @@ exports.createPayment = async (productId, data, options = {}) => {
   const resolvedExternalUserId = externalUserId || productUserId;
   const resolvedEmail = email || user_email;
   const resolvedAccountId = tilledAccountId || account_id;
-  const normalizedPlanCode = String(plan_code).trim();
   const items = Array.isArray(rawItems)
     ? rawItems
     : Array.isArray(extraData?.items)
@@ -48,7 +47,7 @@ exports.createPayment = async (productId, data, options = {}) => {
   const plan = await prisma.productPlan.findFirst({
     where: {
       productId,
-      code: normalizedPlanCode,
+      plan_id,
       isActive: true
     },
     include: {
@@ -56,8 +55,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     }
   });
   if (!plan) {
-    console.log("Invalid plan_code", normalizedPlanCode);
-    throw new Error("Invalid plan_code");
+    throw new Error("Invalid plan_id");
   }
   if (!plan.price || !plan.currency) {
     throw new Error("Invalid plan configuration");
