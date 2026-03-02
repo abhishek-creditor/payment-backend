@@ -1,7 +1,7 @@
 const TilledService = require("../services/tilled.service");
 const paymentDAO = require("../dao/payment.dao");
 const orderDAO = require("../dao/order.dao");
-const prisma = require("../config/prisma");
+const prisma = require("../config/prismaClient");
 
 exports.webhook = async (req, res) => {
     const signature = req.headers["tilled-signature"];

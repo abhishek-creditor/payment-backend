@@ -1,4 +1,4 @@
-const prisma = require("../config/prisma");
+const prisma = require("../config/prismaClient");
 const productUserDAO = require("../dao/productUser.dao");
 const orderDAO = require("../dao/order.dao");
 const paymentDAO = require("../dao/payment.dao");

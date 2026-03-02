@@ -1,5 +1,5 @@
 // My File New Created 
-const prisma = require("../config/prisma");
+const prisma = require("../config/prismaClient");
 
 class AuditLogDAO {
   async createLog(data) {
