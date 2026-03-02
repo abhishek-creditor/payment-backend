@@ -260,7 +260,7 @@ model IdempotencyKey {
 model ProductPlan {
   id          String      @id @default(uuid())
   productId   String
-  code        String      @unique
+  code        String?
   name        String
   description String?
   price       Int
