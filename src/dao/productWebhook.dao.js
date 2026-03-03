@@ -1,4 +1,3 @@
-// const prisma = require("../utils/prisma");
 const prisma = require("../config/prismaClient");
 
 async function create(data) {
