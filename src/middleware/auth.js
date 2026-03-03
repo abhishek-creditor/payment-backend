@@ -13,17 +13,24 @@ module.exports = async function authenticate(req, res, next) {
     // Extract prefix (e.g., "pk_live_lms_")
     const prefix = apiKey.substring(0, apiKey.lastIndexOf("_") + 1);
 
-    // Find key by prefix
-    const key = await apiKeyDAO.getApiKeyByPrefix(null, prefix, true);
+    // Find keys by prefix
+    const keys = await apiKeyDAO.getApiKeysByPrefix(null, prefix, true);
 
-    if (!key) {
+    if (!keys || keys.length === 0) {
       return res.status(403).json({ error: "Invalid API key" });
     }
 
     // Verify full key using bcrypt
-    const isValid = await bcrypt.compare(apiKey, key.keyHash);
+    let key = null;
+    for (const k of keys) {
+      const isValid = await bcrypt.compare(apiKey, k.keyHash);
+      if (isValid) {
+        key = k;
+        break;
+      }
+    }
 
-    if (!isValid) {
+    if (!key) {
       return res.status(403).json({ error: "Invalid API key" });
     }
 

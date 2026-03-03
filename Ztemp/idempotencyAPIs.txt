@@ -1,0 +1,18 @@
+Notice:
+❌ key update allow nahi
+❌ requestHash update allow nahi
+❌ productId update allow nahi
+System integrity safe rahega 🔐
+------------------------------------
+strict banna chaho to future me validation laga sakte hai body ko strict bana ka liya
+jissa body ma khuch wrong field bhi aai to prisma error na de. 
+
+deleteByID --> 
+Active IN_PROGRESS delete nahi hoga
+Expired ho gaya to delete allowed
+Force flag override kar sakta hai
+
+DELETE /admin/idempotency/<id>?force=true
+
+Delete tab block hoga jab:
+1️⃣ status === "IN_PROGRESS"

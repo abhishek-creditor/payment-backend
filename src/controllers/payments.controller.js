@@ -26,6 +26,7 @@ exports.createPayment = async (req, res) => {
       success: true,
       status: paymentStatus, // 👈 Important for middleware mapping
       duplicate: payment.duplicate || false,
+      checkoutUrl: payment.checkoutUrl || null,
       data: payment,
     });
 

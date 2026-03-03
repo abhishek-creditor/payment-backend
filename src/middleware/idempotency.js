@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 const stringify = require("fast-json-stable-stringify");
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 
 // 50 minutes TTL time (via .env) after that Record will auto-expire and allow new requests with same key and delete
 const IDEMPOTENCY_TTL_SECONDS = parseInt(
@@ -70,10 +70,13 @@ module.exports = async function idempotency(req, res, next) {
         expiresAt,
       },
     });
+    console.log("Idempotency Key inserted");
 
     isOwner = true;
     res.setHeader("Idempotency-Replayed", "false");
   } catch {
+    // Already exists
+    console.log("Idempotency Key already exists");
     record = await prisma.idempotencyKey.findUnique({
       where: uniqueWhere,
     });
@@ -106,7 +109,7 @@ module.exports = async function idempotency(req, res, next) {
     if (record.status === "COMPLETED") {
       res.setHeader("Idempotency-Replayed", "true");
       return res
-        .status(record.responseStatusCode || 200)
+        .status(200) // Changed to 200 for idempotency replayed payload
         .json(record.responseBody);
     }
 

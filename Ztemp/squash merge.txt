@@ -1,0 +1,6 @@
+git checkout development
+git pull origin development
+git fetch origin
+git merge --squash origin/feature-branch
+git commit -m "Feature XYZ"
+git push origin development

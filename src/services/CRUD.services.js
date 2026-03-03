@@ -1,4 +1,4 @@
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 const crudDao = require("../dao/CRUD.dao");
 
 exports.createOrder = async (data) => {
