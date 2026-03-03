@@ -5,6 +5,7 @@ const morgan = require("morgan");
 const prisma = require("./config/prismaClient");
 // const auditLogger = require("./middleware/auditLogger");
 const adminOnly = require("./middleware/admin.middleware");
+const productWebhookRoutes = require("./routes/productWebhook.routes");
 
 const app = express();
 
@@ -71,6 +72,8 @@ app.get("/health", async (req, res) => {
 app.use("/api/products", productsRoutes);
 app.use("/api/keys", apiKeyRoutes);
 app.use("/api/product-plan", productPlanRoutes);
+// admin crud routes for webhooks - for creating, updating, deleting webhook configs for different products/events
+app.use("/admin/webhooks", productWebhookRoutes);
 
 // Webhook routes - require raw body but NO API key
 app.use("/api/webhooks", require("./routes/webhook.routes"));

@@ -3,7 +3,6 @@
 const validateCreatePlan = (req, res, next) => {
   const {
     productId,
-    code,
     name,
     description,
     price,
@@ -13,7 +12,7 @@ const validateCreatePlan = (req, res, next) => {
   } = req.body;
 
   // Required fields
-  if (!productId || !code || !name || price == null || !billingType) {
+  if (!productId || !name || price == null || !billingType) {
     return res.status(400).json({
       success: false,
       message:

@@ -1,9 +1,26 @@
-// controllers/productPlan.controller.js
 const productPlanDao = require("../dao/productPlan.dao");
+const productPlanService = require("../services/productPlan.service");
 
 // Create Plan
 exports.createPlan = async (req, res) => {
+  console.log(productPlanService)
   try {
+
+    // Get response from service which handle ebook
+    const ebook = await productPlanService.createPlanService(req.body);
+
+    // Ebook Response
+    if (ebook.type === "EBOOK") {
+      return res.status(201).json({
+        success: true,
+        // type: "EBOOK",
+        Plan_id: ebook.id,
+        productId: ebook.productId,
+        bookId: ebook.bookId,
+      });
+    }
+
+    // default flow for other products
     const plan = await productPlanDao.createPlan(req.body);
     res.status(201).json({
       success: true,
