@@ -111,23 +111,21 @@ exports.createPayment = async (productId, data, options = {}) => {
         };
       }
 
-      // Still processing
-      if (
-        latestPayment.status === "INITIATED" ||
-        latestPayment.status === "PROCESSING"
-      ) {
+      // Still processing (only PROCESSING means Tilled checkout was created)
+      if (latestPayment.status === "PROCESSING") {
         return {
           order: existingOrder,
           payment: latestPayment,
-          duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek payment already exist karta hai jo abhi processing me hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
+          duplicate: true,
           productUser,
         };
       }
 
-      // Retry allowed
+      // Retry allowed (INITIATED means Tilled was never called or failed mid-flow)
       if (
         latestPayment.status === "FAILED" ||
-        latestPayment.status === "CANCELLED"
+        latestPayment.status === "CANCELLED" ||
+        latestPayment.status === "INITIATED"
       ) {
         const newPayment = await paymentDAO.createPayment(tx, {
           orderId: existingOrder.id,

@@ -2,7 +2,7 @@ const path = require("path");
 const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".env.development";
 require("dotenv").config({ path: path.resolve(__dirname, "../", envFile) });
 
-const prisma = require("./utils/prisma");
+const prisma = require("./config/prismaClient");
 const app = require("./app");
 
 // Database connectivity check on startup
@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   const dbConnected = await checkDatabaseConnection();
-  
+
   if (!dbConnected) {
     console.error("Failed to connect to database. Server will not start.");
     process.exit(1);
