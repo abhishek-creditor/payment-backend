@@ -5,6 +5,7 @@ const morgan = require("morgan");
 const prisma = require("./config/prismaClient");
 // const auditLogger = require("./middleware/auditLogger");
 const adminOnly = require("./middleware/admin.middleware");
+const productWebhookRoutes = require("./routes/productWebhook.routes");
 
 const app = express();
 
@@ -25,6 +26,7 @@ const subscriptionsRoutes = require("./routes/subscriptions.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
 const productPlanRoutes = require("./routes/productPlan.routes");
+const crudOperationRoutes = require("./routes/CRUD.routes");
 const adminIdempotencyRoutes = require("./routes/admin.idempotency.routes");
 
 // use middleware for admin routes
@@ -71,7 +73,10 @@ app.get("/health", async (req, res) => {
 // For now, these routes are unprotected - SECURE THESE IN PRODUCTION!
 app.use("/api/products", productsRoutes);
 app.use("/api/keys", apiKeyRoutes);
+app.use("/api/crud",crudOperationRoutes);
 app.use("/api/product-plan", productPlanRoutes);
+// admin crud routes for webhooks - for creating, updating, deleting webhook configs for different products/events
+app.use("/admin/webhooks", productWebhookRoutes);
 
 // Webhook routes - require raw body but NO API key
 app.use("/api/webhooks", require("./routes/webhook.routes"));
