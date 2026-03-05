@@ -30,7 +30,6 @@ exports.createPayment = async (productId, data, options = {}) => {
     paymentMethod = "CARD",
     tilledAccountId,
     account_id,
-    platform_fee_amount,
     items: rawItems,
     extraData = {}
   } = data;
@@ -210,7 +209,7 @@ exports.createPayment = async (productId, data, options = {}) => {
   // The actual Tilled API call must happen AFTER this update.
   // 3. Create or get Tilled Customer
   let tilledCustomer = null;
-  const targetAccountId = resolvedAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
+  const targetAccountId = resolvedAccountId;
   const resolvedName = data.name || data.user_name || resolvedExternalUserId;
 
   const existingCustomerId = productUser.tilledCustomerId || extraData?.userTilledId;
@@ -252,6 +251,10 @@ exports.createPayment = async (productId, data, options = {}) => {
     quantity: 1
   }];
 
+  // Calculate platform fee: 20% for Ebook products
+  const isEbook = plan.product.name?.toLowerCase() === "ebook";
+  const platformFee = isEbook ? Math.round(amount * 0.20) : null;
+
   const tilledMetadata = buildTilledMetadata(order, plan.product, {
     ...extraData,
     externalUserId: resolvedExternalUserId,
@@ -269,7 +272,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       description: `Order ${order.id}`,
       setup_future_usage: "off_session",
       payment_method_types: ["card"],
-      ...(platform_fee_amount !== undefined && platform_fee_amount !== null && { platform_fee_amount: Number(platform_fee_amount) })
+      ...(platformFee && { platform_fee_amount: platformFee })
     },
     metadata: tilledMetadata
   }, targetAccountId);
