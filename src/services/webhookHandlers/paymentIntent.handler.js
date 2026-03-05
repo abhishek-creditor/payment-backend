@@ -2,6 +2,9 @@ const paymentDAO = require("../../dao/payment.dao");
 const orderDAO = require("../../dao/order.dao");
 const prisma = require("../../config/prismaClient");
 
+const webhookDispatcher = require("../webhookDispatcher.service");// for build connection to webhook dispatcher to trigger webhooks on payment status change
+
+// ---> Handle successful payment intent
 exports.handlePaymentIntentSucceeded = async (event) => {
     const paymentIntent = event.data;
     const tilledPaymentId = paymentIntent.id;
@@ -25,10 +28,11 @@ exports.handlePaymentIntentSucceeded = async (event) => {
             status: "PAID"
         });
     });
-
+    await webhookDispatcher.dispatch(payment.orderId, event.type); // Trigger webhooks for this event
     console.log(`Successfully updated order ${payment.orderId} to PAID.`);
 };
 
+// ---> Handle failed payment intent
 exports.handlePaymentIntentFailed = async (event) => {
     const paymentIntent = event.data;
     const tilledPaymentId = paymentIntent.id;
@@ -48,9 +52,12 @@ exports.handlePaymentIntentFailed = async (event) => {
                 status: "FAILED"
             });
         });
+        await webhookDispatcher.dispatch(payment.orderId, event.type); // Trigger webhooks for this event
+        console.log(`Successfully updated order ${payment.orderId} to FAILED.`);
     }
 };
 
+// ---> Handle canceled payment intent
 exports.handlePaymentIntentCanceled = async (event) => {
     const paymentIntent = event.data;
     const tilledPaymentId = paymentIntent.id;
@@ -66,6 +73,7 @@ exports.handlePaymentIntentCanceled = async (event) => {
                 status: "CANCELLED"
             });
         });
+        await webhookDispatcher.dispatch(payment.orderId, event.type); // Trigger webhooks for this event
         console.log(`Successfully CANCELLED order ${payment.orderId}.`);
     }
 };
