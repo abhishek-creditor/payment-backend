@@ -162,8 +162,44 @@ exports.createPayment = async (productId, data, options = {}) => {
       amount,
       currency,
       status: "CREATED",
+      orderType: plan.billingType === "RECURRING" ? "SUBSCRIPTION" : "ONE_TIME",
       items,
     });
+
+    // Race condition guard: if two concurrent requests both passed the
+    // getOrderByReferenceId check above, one will hit a P2002 unique
+    // constraint error in the DAO. The DAO handles this by returning
+    // the existing order with __duplicate = true. We must check for it.
+    if (order.__duplicate) {
+      const latestPayment = order.payments?.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+      )[0];
+
+      // Already paid or still processing → treat as duplicate
+      if (latestPayment?.status === "SUCCEEDED" || latestPayment?.status === "PROCESSING") {
+        return {
+          order,
+          payment: latestPayment,
+          duplicate: true,
+          productUser,
+        };
+      }
+
+      // FAILED/CANCELLED/INITIATED/no payment → allow retry with new payment
+      const retryPayment = await paymentDAO.createPayment(tx, {
+        orderId: order.id,
+        amount,
+        method: paymentMethod,
+        status: "INITIATED",
+      });
+      console.log(`Race condition detected: reusing order ${order.id}, created retry payment ${retryPayment.id}`);
+      return {
+        order,
+        payment: retryPayment,
+        duplicate: false,
+        productUser,
+      };
+    }
 
     const payment = await paymentDAO.createPayment(tx, {
       orderId: order.id,
@@ -202,11 +238,11 @@ exports.createPayment = async (productId, data, options = {}) => {
   // STEP 2: CALL TILLED
   // ==========================================
 
-  // IMPORTANT FOR TILLED INTEGRATION TEAM:
-  // Before calling Tilled API, update payment status to "PROCESSING".
-  // This ensures correct state flow:
-  // INITIATED → PROCESSING → (SUCCEEDED / FAILED / CANCELLED)
-  // The actual Tilled API call must happen AFTER this update.
+  // NOTE: Payment stays INITIATED until the Tilled checkout session is
+  // successfully created. Only then do we update to PROCESSING (line below).
+  // State flow: INITIATED → PROCESSING → (SUCCEEDED / FAILED / CANCELLED)
+  // This way, if the Tilled call fails, the payment stays INITIATED and
+  // can be retried safely.
   // 3. Create or get Tilled Customer
   let tilledCustomer = null;
   const targetAccountId = resolvedAccountId;
@@ -260,6 +296,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     externalUserId: resolvedExternalUserId,
     planName: plan.name,
     planId: plan.id,
+    billingType: plan.billingType,
   });
 
   const checkoutSessionResponse = await TilledService.createCheckoutSession({
@@ -299,6 +336,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       {
         ...payment,
         status: "PROCESSING",
+        tilledPaymentId: checkoutSession.payment_intent_id,
       },
     ],
     duplicate: false,
