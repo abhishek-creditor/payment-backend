@@ -28,6 +28,7 @@ exports.handlePaymentIntentSucceeded = async (event) => {
             status: "PAID"
         });
     });
+    console.log("WEBHOOK DISPATCH STARTED: ", { orderId: payment.orderId, eventType: event.type });
     await webhookDispatcher.dispatch(payment.orderId, event.type); // Trigger webhooks for this event
     console.log(`Successfully updated order ${payment.orderId} to PAID.`);
 };
@@ -52,6 +53,7 @@ exports.handlePaymentIntentFailed = async (event) => {
                 status: "FAILED"
             });
         });
+        console.log("WEBHOOK DISPATCH STARTED: ", { orderId: payment.orderId, eventType: event.type });
         await webhookDispatcher.dispatch(payment.orderId, event.type); // Trigger webhooks for this event
         console.log(`Successfully updated order ${payment.orderId} to FAILED.`);
     }
@@ -73,6 +75,7 @@ exports.handlePaymentIntentCanceled = async (event) => {
                 status: "CANCELLED"
             });
         });
+        console.log("WEBHOOK DISPATCH STARTED: ", { orderId: payment.orderId, eventType: event.type });
         await webhookDispatcher.dispatch(payment.orderId, event.type); // Trigger webhooks for this event
         console.log(`Successfully CANCELLED order ${payment.orderId}.`);
     }
