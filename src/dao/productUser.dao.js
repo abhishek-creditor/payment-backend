@@ -1,4 +1,4 @@
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 
 class ProductUserDAO {
   /**
@@ -11,7 +11,7 @@ class ProductUserDAO {
    */
   async upsertProductUser(tx, productId, externalUserId, email) {
     const client = tx || prisma;
-    
+
     return client.productUser.upsert({
       where: {
         productId_externalUserId: {
@@ -38,7 +38,7 @@ class ProductUserDAO {
    */
   async getProductUserById(tx, productUserId) {
     const client = tx || prisma;
-    
+
     return client.productUser.findUnique({
       where: { id: productUserId }
     });
@@ -53,13 +53,31 @@ class ProductUserDAO {
    */
   async getProductUserByExternalId(tx, productId, externalUserId) {
     const client = tx || prisma;
-    
+
     return client.productUser.findUnique({
       where: {
         productId_externalUserId: {
           productId,
           externalUserId
         }
+      }
+    });
+  }
+  /**
+   * Update Tilled customer ID for a product user
+   * @param {Object} tx - Prisma transaction client (optional)
+   * @param {string} productUserId - Product User ID
+   * @param {string} tilledCustomerId - Tilled Customer ID
+   * @returns {Promise<Object>} Updated ProductUser
+   */
+  async updateTilledCustomerId(tx, productUserId, tilledCustomerId) {
+    const client = tx || prisma;
+
+    return client.productUser.update({
+      where: { id: productUserId },
+      data: {
+        tilledCustomerId,
+        tilledCustomerCreatedAt: new Date()
       }
     });
   }

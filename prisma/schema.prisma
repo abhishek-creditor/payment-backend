@@ -20,6 +20,7 @@ model Product {
   orders          Order[]
   requestLogs     ApiRequestLog[]
   idempotencyKeys IdempotencyKey[]
+  webhookConfigs  ProductWebhookConfig[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -259,7 +260,7 @@ model IdempotencyKey {
 model ProductPlan {
   id          String      @id @default(uuid())
   productId   String
-  code        String      @unique
+  code        String?
   name        String
   description String?
   price       Int
@@ -362,6 +363,55 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model ProductWebhookConfig {
+  id           String              @id @default(uuid())
+  productId    String
+  triggerEvent String // Which webhook event triggers this
+
+  callbackUrl  String
+  httpMethod   HttpMethod       @default(POST)
+  authType     OutgoingAuthType? @default(BEARER_TOKEN) // Auth for the outgoing request
+  authSecret   String? // encrypted token/key to send to them
+  headers      Json? // extra headers to include
+  bodyTemplate Json? // template with placeholders like {{orderId}}, {{userId}}
+  maxRetries   Int?              @default(3)
+  retryDelayMs Int?              @default(1000)
+
+  isActive Boolean @default(true)
+
+  product    Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  deliveries OutgoingWebhookDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([productId])
+  @@index([isActive])
+}
+
+model OutgoingWebhookDelivery {
+  id       String  @id @default(uuid())
+  configId String
+  orderId  String?
+
+  attemptNumber Int?     @default(1)
+  statusCode    Int?
+  requestBody   Json?
+  responseBody  String?
+  errorMessage  String?
+  success       Boolean? @default(false)
+
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  config ProductWebhookConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId])
+  @@index([orderId])
+  @@index([success])
+  @@index([createdAt])
+}
+
 enum OrderStatus {
   CREATED
   PENDING
@@ -443,4 +493,19 @@ enum OrderType {
   CANCEL
   REFUND
   OTHER
+}
+
+enum OutgoingAuthType {
+  BEARER_TOKEN
+  API_KEY_HEADER
+  BASIC_AUTH
+  HMAC_SIGNATURE
+  NONE
+}
+
+enum HttpMethod {
+  POST
+  PUT
+  PATCH
+  GET
 }

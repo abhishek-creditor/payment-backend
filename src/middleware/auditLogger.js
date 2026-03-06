@@ -11,7 +11,8 @@ const auditLogger = (req, res, next) => {
     const logData = {
       userId: req.user?.id || null,
       userName: req.user?.name || null,
-      status: res.statusCode >= 400 ? "FAILED" : "SUCCESS",
+      // status: res.statusCode >= 400 ? "FAILED" : "SUCCESS",
+      status: res.statusCode >= 400 ? "CHALGAI" : "KHATAM",
       ipAddress: req.ip,
       httpMethod: req.method,
       path: req.originalUrl,
@@ -23,7 +24,7 @@ const auditLogger = (req, res, next) => {
     };
 
     // Fire and forget (non-blocking)
-    auditLogDAO.createLog(logData);
+    // auditLogDAO.createLog(logData);
 
     return originalSend.call(this, body);
   };

@@ -1,4 +1,4 @@
-const prisma = require("../utils/prisma");
+const prisma = require("../config/prismaClient");
 
 class ApiKeyDAO {
   /**
@@ -13,40 +13,40 @@ class ApiKeyDAO {
  * Get all API keys with pagination & filtering (no - pagination)
  */
 
-async getAllApiKeys(tx, filters = {}) {
-  const client = tx || prisma;
+  async getAllApiKeys(tx, filters = {}) {
+    const client = tx || prisma;
 
-  const { productId, isActive } = filters;
+    const { productId, isActive } = filters;
 
-  const where = {};
+    const where = {};
 
-  if (productId) where.productId = productId;
-  if (typeof isActive === "boolean") where.isActive = isActive;
+    if (productId) where.productId = productId;
+    if (typeof isActive === "boolean") where.isActive = isActive;
 
-  const keys = await client.apiKey.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    include: {
-      product: {
-        select: {
-          id: true,
-          name: true,
-          code: true,
+    const keys = await client.apiKey.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
         },
       },
-    },
-  });
+    });
 
-  return keys;
-}
+    return keys;
+  }
 
-// Closed the getAllApiKeys method
+  // Closed the getAllApiKeys method
 
 
 
   async createApiKey(tx, keyData) {
     const client = tx || prisma;
-    
+
     return client.apiKey.create({
       data: {
         productId: keyData.productId,
@@ -73,7 +73,7 @@ async getAllApiKeys(tx, filters = {}) {
    */
   async getApiKeyById(tx, keyId) {
     const client = tx || prisma;
-    
+
     return client.apiKey.findUnique({
       where: { id: keyId },
       include: {
@@ -89,15 +89,15 @@ async getAllApiKeys(tx, filters = {}) {
    * @param {boolean} activeOnly - Only return active keys
    * @returns {Promise<Object|null>} API Key
    */
-  async getApiKeyByPrefix(tx, keyPrefix, activeOnly = true) {
+  async getApiKeysByPrefix(tx, keyPrefix, activeOnly = true) {
     const client = tx || prisma;
-    
+
     const where = { keyPrefix };
     if (activeOnly) {
       where.isActive = true;
     }
 
-    return client.apiKey.findFirst({
+    return client.apiKey.findMany({
       where,
       include: {
         product: true
@@ -113,7 +113,7 @@ async getAllApiKeys(tx, filters = {}) {
    */
   async getApiKeysByProductId(tx, productId) {
     const client = tx || prisma;
-    
+
     return client.apiKey.findMany({
       where: { productId },
       include: {
@@ -132,7 +132,7 @@ async getAllApiKeys(tx, filters = {}) {
    */
   async updateApiKey(tx, keyId, data) {
     const client = tx || prisma;
-    
+
     return client.apiKey.update({
       where: { id: keyId },
       data,
@@ -151,7 +151,7 @@ async getAllApiKeys(tx, filters = {}) {
    */
   async updateLastUsedAt(tx, keyId, lastUsedAt) {
     const client = tx || prisma;
-    
+
     return client.apiKey.update({
       where: { id: keyId },
       data: { lastUsedAt }
@@ -166,7 +166,7 @@ async getAllApiKeys(tx, filters = {}) {
    */
   async deleteApiKey(tx, keyId) {
     const client = tx || prisma;
-    
+
     return client.apiKey.delete({
       where: { id: keyId }
     });

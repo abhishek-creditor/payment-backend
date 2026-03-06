@@ -30,7 +30,7 @@ class RateLimitService {
       const secondsPassed = now.getSeconds();
       const retryAfter = 60 - secondsPassed;
 
-      if (tracker.requestCount > rateLimitPerMin) {
+      if (tracker.requestCount >= rateLimitPerMin) {
         return {
           limited: true,
           retryAfter,
