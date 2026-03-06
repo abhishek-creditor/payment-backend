@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 // const authenticate = require("../middleware/auth");
+const requireIdempotencyKey = require("../middleware/requireIdempotencyKey");
 const requirePermissions = require("../middleware/requirePermissions");
 const idempotency = require("../middleware/idempotency");
 const controller = require("../controllers/payments.controller");
@@ -20,6 +21,7 @@ router.post(
   "/",
   requirePermissions(["charge"]),
   validateCreatePayment,
+  requireIdempotencyKey,
   idempotency,
   controller.createPayment
 );
@@ -54,6 +56,7 @@ router.get(
 router.post(
   "/:id/refund",
   requirePermissions(["refund"]),
+  requireIdempotencyKey,
   idempotency,
   controller.refundPayment // You'll need to add this controller method
 );
