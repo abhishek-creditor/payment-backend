@@ -1,10 +1,12 @@
 const paymentDAO = require("../../dao/payment.dao");
 const orderDAO = require("../../dao/order.dao");
 const prisma = require("../../config/prismaClient");
+const subscriptionService = require("../subscriptions.service");
 
 exports.handlePaymentIntentSucceeded = async (event) => {
     const paymentIntent = event.data;
     const tilledPaymentId = paymentIntent.id;
+    const paymentMethodId = paymentIntent.payment_method_id || null;
 
     console.log(`Processing successful payment intent: ${tilledPaymentId}`);
 
@@ -15,10 +17,12 @@ exports.handlePaymentIntentSucceeded = async (event) => {
         return;
     }
 
+    // Update payment status + store payment_method_id
     await prisma.$transaction(async (tx) => {
         await paymentDAO.updatePayment(tx, payment.id, {
             status: "SUCCEEDED",
-            rawResponse: paymentIntent
+            rawResponse: paymentIntent,
+            tilledPaymentMethodId: paymentMethodId,
         });
 
         await orderDAO.updateOrder(tx, payment.orderId, {
@@ -27,6 +31,49 @@ exports.handlePaymentIntentSucceeded = async (event) => {
     });
 
     console.log(`Successfully updated order ${payment.orderId} to PAID.`);
+
+    // ---------------------------
+    // AUTO-CREATE SUBSCRIPTION
+    // If this payment was for a RECURRING plan, create the subscription
+    // ---------------------------
+    const metadata = paymentIntent.metadata || {};
+
+    if (metadata.billing_type === "RECURRING" && paymentMethodId) {
+        console.log(`RECURRING payment detected for order ${payment.orderId}. Creating subscription...`);
+
+        try {
+            // We need the order to get productId and the associated account
+            const order = await orderDAO.getOrderById(null, payment.orderId, {
+                productUser: true,
+            });
+
+            if (!order) {
+                console.error(`Order ${payment.orderId} not found, cannot create subscription.`);
+                return;
+            }
+
+            const subscription = await subscriptionService.createSubscription(
+                order.productId,
+                {
+                    externalUserId: metadata.user_id || order.productUser?.externalUserId,
+                    productPlanId: metadata.plan_id || order.planId,
+                    paymentMethodId: paymentMethodId,
+                    tilledAccountId: paymentIntent.account_id,
+                }
+            );
+
+            // Link the subscription to the order
+            await orderDAO.updateOrder(null, order.id, {
+                subscriptionId: subscription.id,
+            });
+
+            console.log(`Subscription ${subscription.id} created and linked to order ${order.id}`);
+        } catch (err) {
+            // Log the error but don't fail the webhook — the payment was already marked as SUCCEEDED
+            // The subscription can be retried manually using the stored payment_method_id
+            console.error(`Failed to auto-create subscription for order ${payment.orderId}:`, err.message);
+        }
+    }
 };
 
 exports.handlePaymentIntentFailed = async (event) => {
