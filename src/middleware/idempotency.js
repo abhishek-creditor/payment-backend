@@ -41,7 +41,7 @@ module.exports = async function idempotency(req, res, next) {
     .digest("hex");
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000); // Record expiration time for safe retry after TTL expiration 
+  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_TTL_SECONDS * 1000); // Record expiration time for safe retry after TTL expiration
 
   const uniqueWhere = {
     productId_key_method_path: {
@@ -76,11 +76,10 @@ module.exports = async function idempotency(req, res, next) {
     isOwner = true;
     res.setHeader("Idempotency-Replayed", "false");
     console.log("[Idempotency] New lock created, owner:", record.id);
-    
   } catch {
-// ─── STEP 2: Key already exists — inspect existing record ────────────────
+    // ─── STEP 2: Key already exists — inspect existing record ────────────────
     console.log("Idempotency Key already exists, fetching record...");
-    
+
     record = await prisma.idempotencyKey.findUnique({
       where: uniqueWhere,
     });
@@ -149,9 +148,9 @@ module.exports = async function idempotency(req, res, next) {
       //     expiresAt,
       //   },
       // });
-    //   isOwner = true; // Allow this request to proceed Q ki ya Request new owner bana raha hai stale lock ka
-    //   res.setHeader("Idempotency-Replayed", "false");
-    // }
+      //   isOwner = true; // Allow this request to proceed Q ki ya Request new owner bana raha hai stale lock ka
+      //   res.setHeader("Idempotency-Replayed", "false");
+      // }
 
       // [NEW] Stale lock recovery (atomic)
       // WHERE guards ensure only one concurrent request wins.
@@ -160,8 +159,9 @@ module.exports = async function idempotency(req, res, next) {
         record = await prisma.idempotencyKey.update({
           where: {
             id: record.id,
-            status: "IN_PROGRESS",        // guard: must still be in-progress
-            createdAt: {                  // guard: must actually be stale
+            status: "IN_PROGRESS", // guard: must still be in-progress
+            createdAt: {
+              // guard: must actually be stale
               lt: new Date(Date.now() - IN_PROGRESS_TIMEOUT_SECONDS * 1000),
             },
           },
@@ -173,7 +173,6 @@ module.exports = async function idempotency(req, res, next) {
 
         isOwner = true;
         res.setHeader("Idempotency-Replayed", "false");
-
       } catch {
         return res.status(409).json({
           error: "A request with this Idempotency-Key is already in progress.",
@@ -181,11 +180,10 @@ module.exports = async function idempotency(req, res, next) {
       }
     }
 
-
     // FAILED / CANCELLED → Allow Retry
     if (record.status === "FAILED" || record.status === "CANCELLED") {
       // await prisma.idempotencyKey.delete({
-        // where: { id: record.id },
+      // where: { id: record.id },
       // });
       // return next();
       const { count } = await prisma.idempotencyKey.deleteMany({
@@ -196,39 +194,41 @@ module.exports = async function idempotency(req, res, next) {
       });
 
       if (count === 0) {
-    // Another request already claimed this retry slot
-    return res.status(409).json({
-      error: "A request with this Idempotency-Key is already in progress.",
-    });
-  }
+        // Another request already claimed this retry slot
+        return res.status(409).json({
+          error: "A request with this Idempotency-Key is already in progress.",
+        });
+      }
 
- // Won the race — re-insert fresh record so res.json has a valid ID to finalize
-  record = await prisma.idempotencyKey.create({
-    data: {
-      productId,
-      apiKeyId: req.apiKey?.id || null,
-      key,
-      method,
-      path,
-      requestHash,
-      status: "IN_PROGRESS",
-      expiresAt,
-    },
-  });
+      // Won the race — re-insert fresh record so res.json has a valid ID to finalize
+      record = await prisma.idempotencyKey.create({
+        data: {
+          productId,
+          apiKeyId: req.apiKey?.id || null,
+          key,
+          method,
+          path,
+          requestHash,
+          status: "IN_PROGRESS",
+          expiresAt,
+        },
+      });
 
-  isOwner = true;
-  res.setHeader("Idempotency-Replayed", "false");
+      isOwner = true;
+      res.setHeader("Idempotency-Replayed", "false");
     }
   }
 
   // IMPORTANT:
-// Sirf wahi request idempotency record finalize karegi jo lock ki owner hai.
-// Agar ye request owner nahi hai (duplicate / replay case),
-// to aage ka status update logic run nahi hoga.
-// Isse multiple requests ek hi record ko modify nahi kar sakti
-// aur race condition prevent hoti hai.
+  // Sirf wahi request idempotency record finalize karegi jo lock ki owner hai.
+  // Agar ye request owner nahi hai (duplicate / replay case),
+  // to aage ka status update logic run nahi hoga.
+  // Isse multiple requests ek hi record ko modify nahi kar sakti
+  // aur race condition prevent hoti hai.
   if (!isOwner) {
-    console.warn("[Idempotency] Reached owner gate without owning lock — dropping.");
+    console.warn(
+      "[Idempotency] Reached owner gate without owning lock — dropping.",
+    );
     return res.status(409).json({
       error: "A request with this Idempotency-Key is already in progress.",
     });
@@ -282,7 +282,8 @@ module.exports = async function idempotency(req, res, next) {
         finalStatus = "COMPLETED";
       } else {
         // Unknown status — safe fallback based on HTTP status code
-        finalStatus = (statusCode >= 200 && statusCode < 300) ? "COMPLETED" : "FAILED";
+        finalStatus =
+          statusCode >= 200 && statusCode < 300 ? "COMPLETED" : "FAILED";
       }
 
       await prisma.idempotencyKey.update({
@@ -291,6 +292,10 @@ module.exports = async function idempotency(req, res, next) {
           status: finalStatus,
           responseStatusCode: statusCode,
           responseBody: body,
+
+          // Capture orderId/paymentId from response if available
+          orderId: body?.id || body?.orderId || null,
+          paymentId: body?.payments?.[0]?.id || null,
         },
       });
     } catch (err) {

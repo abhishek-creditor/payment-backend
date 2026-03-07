@@ -31,7 +31,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     tilledAccountId,
     account_id,
     items: rawItems,
-    extraData = {}
+    extraData = {},
   } = data;
 
   const resolvedExternalUserId = externalUserId || productUserId;
@@ -47,11 +47,11 @@ exports.createPayment = async (productId, data, options = {}) => {
     where: {
       id: productPlanId,
       productId,
-      isActive: true
+      isActive: true,
     },
     include: {
-      product: true
-    }
+      product: true,
+    },
   });
   if (!plan) {
     console.log("Invalid productPlanId", productPlanId);
@@ -71,10 +71,14 @@ exports.createPayment = async (productId, data, options = {}) => {
       tx,
       productId,
       resolvedExternalUserId,
-      resolvedEmail
+      resolvedEmail,
     );
 
-    const existingOrder = await orderDAO.getOrderByReferenceId(tx, productId, referenceId);
+    const existingOrder = await orderDAO.getOrderByReferenceId(
+      tx,
+      productId,
+      referenceId,
+    );
 
     // ==========================================
     // CASE: ORDER EXISTS
@@ -132,7 +136,9 @@ exports.createPayment = async (productId, data, options = {}) => {
           status: "INITIATED",
           amount,
         });
-        console.log(`Retrying payment for existing order ${existingOrder.id} with new payment ${newPayment.id}`);
+        console.log(
+          `Retrying payment for existing order ${existingOrder.id} with new payment ${newPayment.id}`,
+        );
         return {
           order: existingOrder,
           payment: newPayment,
@@ -157,7 +163,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     const order = await orderDAO.createOrder(tx, {
       productId,
       productUserId: productUser.id,
-      planId: plan.id,   //added this as order table expects required relation with plan table for which we need id
+      planId: plan.id, //added this as order table expects required relation with plan table for which we need id
       referenceId,
       amount,
       currency,
@@ -176,7 +182,10 @@ exports.createPayment = async (productId, data, options = {}) => {
       )[0];
 
       // Already paid or still processing → treat as duplicate
-      if (latestPayment?.status === "SUCCEEDED" || latestPayment?.status === "PROCESSING") {
+      if (
+        latestPayment?.status === "SUCCEEDED" ||
+        latestPayment?.status === "PROCESSING"
+      ) {
         return {
           order,
           payment: latestPayment,
@@ -192,7 +201,9 @@ exports.createPayment = async (productId, data, options = {}) => {
         method: paymentMethod,
         status: "INITIATED",
       });
-      console.log(`Race condition detected: reusing order ${order.id}, created retry payment ${retryPayment.id}`);
+      console.log(
+        `Race condition detected: reusing order ${order.id}, created retry payment ${retryPayment.id}`,
+      );
       return {
         order,
         payment: retryPayment,
@@ -221,7 +232,8 @@ exports.createPayment = async (productId, data, options = {}) => {
   // IF DUPLICATE SUCCESS → RETURN
   // ==========================================
 
-  if (result.duplicate) { // Duplicate case me Tilled call nahi karenge, existing order/payment ko hi reuse karenge.
+  if (result.duplicate) {
+    // Duplicate case me Tilled call nahi karenge, existing order/payment ko hi reuse karenge.
     const latestPayment = result.order.payments?.sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     )[0];
@@ -233,6 +245,26 @@ exports.createPayment = async (productId, data, options = {}) => {
     };
   }
   const { order, payment, productUser } = result;
+
+  // ------------------------------------------
+  // LINK IDEMPOTENCY RECORD WITH ORDER/PAYMENT
+  // ------------------------------------------
+  if (idempotencyKey) {
+    try {
+      await prisma.idempotencyKey.updateMany({
+        where: {
+          productId: productId,
+          key: idempotencyKey,
+        },
+        data: {
+          orderId: order.id,
+          paymentId: payment.id,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to link idempotency record:", err);
+    }
+  }
 
   // ==========================================
   // STEP 2: CALL TILLED
@@ -248,48 +280,66 @@ exports.createPayment = async (productId, data, options = {}) => {
   const targetAccountId = resolvedAccountId;
   const resolvedName = data.name || data.user_name || resolvedExternalUserId;
 
-  const existingCustomerId = productUser.tilledCustomerId || extraData?.userTilledId;
+  const existingCustomerId =
+    productUser.tilledCustomerId || extraData?.userTilledId;
   if (existingCustomerId) {
     try {
-      const getCustomerResponse = await TilledService.getCustomer(existingCustomerId, targetAccountId);
-      if (getCustomerResponse.statusCode >= 200 && getCustomerResponse.statusCode < 300) {
+      const getCustomerResponse = await TilledService.getCustomer(
+        existingCustomerId,
+        targetAccountId,
+      );
+      if (
+        getCustomerResponse.statusCode >= 200 &&
+        getCustomerResponse.statusCode < 300
+      ) {
         tilledCustomer = getCustomerResponse.data;
       }
     } catch (error) {
-      console.error(`Could not fetch existing Tilled customer ${existingCustomerId}, will create a new one.`);
+      console.error(
+        `Could not fetch existing Tilled customer ${existingCustomerId}, will create a new one.`,
+      );
     }
   }
 
   if (!tilledCustomer) {
-    const tilledCustomerResponse = await TilledService.createCustomer({
-      email: resolvedEmail,
-      first_name: resolvedName,
-      metadata: {
-        externalUserId: resolvedExternalUserId,
-        productId: productId
-      }
-    }, targetAccountId);
+    const tilledCustomerResponse = await TilledService.createCustomer(
+      {
+        email: resolvedEmail,
+        first_name: resolvedName,
+        metadata: {
+          externalUserId: resolvedExternalUserId,
+          productId: productId,
+        },
+      },
+      targetAccountId,
+    );
     tilledCustomer = tilledCustomerResponse.data;
 
     // Update our DB with this most recent customer ID outside the main transaction
-    await productUserDAO.updateTilledCustomerId(null, productUser.id, tilledCustomer.id);
+    await productUserDAO.updateTilledCustomerId(
+      null,
+      productUser.id,
+      tilledCustomer.id,
+    );
   }
 
   // 4. Create Tilled Checkout Session
-  const lineItems = [{
-    price_data: {
-      currency: currency,
-      product_data: {
-        name: plan.name || `Plan ${plan.code}` || "Order Payment"
+  const lineItems = [
+    {
+      price_data: {
+        currency: currency,
+        product_data: {
+          name: plan.name || `Plan ${plan.code}` || "Order Payment",
+        },
+        unit_amount: amount,
       },
-      unit_amount: amount
+      quantity: 1,
     },
-    quantity: 1
-  }];
+  ];
 
   // Calculate platform fee: 20% for Ebook products
   const isEbook = plan.product.name?.toLowerCase() === "ebook";
-  const platformFee = isEbook ? Math.round(amount * 0.20) : null;
+  const platformFee = isEbook ? Math.round(amount * 0.2) : null;
 
   const tilledMetadata = buildTilledMetadata(order, plan.product, {
     ...extraData,
@@ -299,34 +349,39 @@ exports.createPayment = async (productId, data, options = {}) => {
     billingType: plan.billingType,
   });
 
-  const checkoutSessionResponse = await TilledService.createCheckoutSession({
-    customer_id: tilledCustomer.id,
-    line_items: lineItems,
-    mode: 'payment',
-    success_url: 'https://payment-pagess.netlify.app/success',
-    cancel_url: 'https://payment-pagess.netlify.app/cancelled',
-    payment_intent_data: {
-      description: `Order ${order.id}`,
-      setup_future_usage: "off_session",
-      payment_method_types: ["card"],
-      ...(platformFee && { platform_fee_amount: platformFee })
+  const checkoutSessionResponse = await TilledService.createCheckoutSession(
+    {
+      customer_id: tilledCustomer.id,
+      line_items: lineItems,
+      mode: "payment",
+      success_url: "https://payment-pagess.netlify.app/success",
+      cancel_url: "https://payment-pagess.netlify.app/cancelled",
+      payment_intent_data: {
+        description: `Order ${order.id}`,
+        setup_future_usage: "off_session",
+        payment_method_types: ["card"],
+        ...(platformFee && { platform_fee_amount: platformFee }),
+      },
+      metadata: tilledMetadata,
     },
-    metadata: tilledMetadata
-  }, targetAccountId);
+    targetAccountId,
+  );
 
   console.log("Checkout Session Response:", checkoutSessionResponse);
 
   const checkoutSession = checkoutSessionResponse.data;
 
   if (checkoutSessionResponse.statusCode >= 400) {
-    throw new Error(`Tilled Error: ${checkoutSession.message || checkoutSession.error || 'Failed to create checkout session'}`);
+    throw new Error(
+      `Tilled Error: ${checkoutSession.message || checkoutSession.error || "Failed to create checkout session"}`,
+    );
   }
 
   await prisma.payment.update({
     where: { id: payment.id },
     data: {
       status: "PROCESSING",
-      tilledPaymentId: checkoutSession.payment_intent_id
+      tilledPaymentId: checkoutSession.payment_intent_id,
     },
   });
 
