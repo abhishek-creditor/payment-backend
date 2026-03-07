@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   const dbConnected = await checkDatabaseConnection();
-  
+
   if (!dbConnected) {
     console.error("Failed to connect to database. Server will not start.");
     process.exit(1);
