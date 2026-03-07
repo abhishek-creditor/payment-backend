@@ -30,7 +30,6 @@ exports.createPayment = async (productId, data, options = {}) => {
     paymentMethod = "CARD",
     tilledAccountId,
     account_id,
-    platform_fee_amount,
     items: rawItems,
     extraData = {}
   } = data;
@@ -111,23 +110,21 @@ exports.createPayment = async (productId, data, options = {}) => {
         };
       }
 
-      // Still processing
-      if (
-        latestPayment.status === "INITIATED" ||
-        latestPayment.status === "PROCESSING"
-      ) {
+      // Still processing (only PROCESSING means Tilled checkout was created)
+      if (latestPayment.status === "PROCESSING") {
         return {
           order: existingOrder,
           payment: latestPayment,
-          duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek payment already exist karta hai jo abhi processing me hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
+          duplicate: true,
           productUser,
         };
       }
 
-      // Retry allowed
+      // Retry allowed (INITIATED means Tilled was never called or failed mid-flow)
       if (
         latestPayment.status === "FAILED" ||
-        latestPayment.status === "CANCELLED"
+        latestPayment.status === "CANCELLED" ||
+        latestPayment.status === "INITIATED"
       ) {
         const newPayment = await paymentDAO.createPayment(tx, {
           orderId: existingOrder.id,
@@ -165,8 +162,44 @@ exports.createPayment = async (productId, data, options = {}) => {
       amount,
       currency,
       status: "CREATED",
+      orderType: plan.billingType === "RECURRING" ? "SUBSCRIPTION" : "ONE_TIME",
       items,
     });
+
+    // Race condition guard: if two concurrent requests both passed the
+    // getOrderByReferenceId check above, one will hit a P2002 unique
+    // constraint error in the DAO. The DAO handles this by returning
+    // the existing order with __duplicate = true. We must check for it.
+    if (order.__duplicate) {
+      const latestPayment = order.payments?.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+      )[0];
+
+      // Already paid or still processing → treat as duplicate
+      if (latestPayment?.status === "SUCCEEDED" || latestPayment?.status === "PROCESSING") {
+        return {
+          order,
+          payment: latestPayment,
+          duplicate: true,
+          productUser,
+        };
+      }
+
+      // FAILED/CANCELLED/INITIATED/no payment → allow retry with new payment
+      const retryPayment = await paymentDAO.createPayment(tx, {
+        orderId: order.id,
+        amount,
+        method: paymentMethod,
+        status: "INITIATED",
+      });
+      console.log(`Race condition detected: reusing order ${order.id}, created retry payment ${retryPayment.id}`);
+      return {
+        order,
+        payment: retryPayment,
+        duplicate: false,
+        productUser,
+      };
+    }
 
     const payment = await paymentDAO.createPayment(tx, {
       orderId: order.id,
@@ -205,14 +238,14 @@ exports.createPayment = async (productId, data, options = {}) => {
   // STEP 2: CALL TILLED
   // ==========================================
 
-  // IMPORTANT FOR TILLED INTEGRATION TEAM:
-  // Before calling Tilled API, update payment status to "PROCESSING".
-  // This ensures correct state flow:
-  // INITIATED → PROCESSING → (SUCCEEDED / FAILED / CANCELLED)
-  // The actual Tilled API call must happen AFTER this update.
+  // NOTE: Payment stays INITIATED until the Tilled checkout session is
+  // successfully created. Only then do we update to PROCESSING (line below).
+  // State flow: INITIATED → PROCESSING → (SUCCEEDED / FAILED / CANCELLED)
+  // This way, if the Tilled call fails, the payment stays INITIATED and
+  // can be retried safely.
   // 3. Create or get Tilled Customer
   let tilledCustomer = null;
-  const targetAccountId = resolvedAccountId || process.env.TILLED_SANDBOX_ACCOUNT_ID;
+  const targetAccountId = resolvedAccountId;
   const resolvedName = data.name || data.user_name || resolvedExternalUserId;
 
   const existingCustomerId = productUser.tilledCustomerId || extraData?.userTilledId;
@@ -254,11 +287,16 @@ exports.createPayment = async (productId, data, options = {}) => {
     quantity: 1
   }];
 
+  // Calculate platform fee: 20% for Ebook products
+  const isEbook = plan.product.name?.toLowerCase() === "ebook";
+  const platformFee = isEbook ? Math.round(amount * 0.20) : null;
+
   const tilledMetadata = buildTilledMetadata(order, plan.product, {
     ...extraData,
     externalUserId: resolvedExternalUserId,
     planName: plan.name,
     planId: plan.id,
+    billingType: plan.billingType,
   });
 
   const checkoutSessionResponse = await TilledService.createCheckoutSession({
@@ -271,7 +309,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       description: `Order ${order.id}`,
       setup_future_usage: "off_session",
       payment_method_types: ["card"],
-      ...(platform_fee_amount !== undefined && platform_fee_amount !== null && { platform_fee_amount: Number(platform_fee_amount) })
+      ...(platformFee && { platform_fee_amount: platformFee })
     },
     metadata: tilledMetadata
   }, targetAccountId);
@@ -298,6 +336,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       {
         ...payment,
         status: "PROCESSING",
+        tilledPaymentId: checkoutSession.payment_intent_id,
       },
     ],
     duplicate: false,

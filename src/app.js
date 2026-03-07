@@ -22,6 +22,7 @@ app.use(morgan("combined"));
 
 // Import routes
 const paymentsRoutes = require("./routes/payments.routes");
+const subscriptionsRoutes = require("./routes/subscriptions.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
 const productPlanRoutes = require("./routes/productPlan.routes");
@@ -85,6 +86,7 @@ app.use("/api/webhooks", require("./routes/webhook.routes"));
 // ============================================
 // Payment routes - require API key authentication
 app.use("/api/payments", authenticate, paymentsRoutes);
+app.use("/api/subscriptions", authenticate, subscriptionsRoutes);
 
 // ============================================
 // ERROR HANDLING
