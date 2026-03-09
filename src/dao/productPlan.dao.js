@@ -10,6 +10,18 @@ const productPlanDao = {
     });
   },
 
+  // Check if bookId already exists inside metadata
+  async findPlanByBookId(bookId) {
+    return await prisma.productPlan.findFirst({
+      where: {
+        metadata: {
+          path: ["bookId"],
+          equals: bookId,
+        },
+      },
+    });
+  },
+
   // Get all with optional product name filter
   async getAllPlans(productName) {
     return await prisma.productPlan.findMany({

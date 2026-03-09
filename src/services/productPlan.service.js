@@ -1,7 +1,8 @@
 const cuid = require("cuid");
 const productPlanDao = require("../dao/productPlan.dao");
 
-const EBOOK_PRODUCT_ID = "5d08e409-3dc6-4584-82ea-5e29af446144";
+const EBOOK_PRODUCT_ID =
+  process.env.EBOOK_PRODUCT_ID || "5d08e409-3dc6-4584-82ea-5e29af446144";
 
 // Create Plan Service
 async function createPlanService(data) {
@@ -44,6 +45,13 @@ async function createEbookPlan(data) {
   }
 
   const bookId = metadata.bookId;
+
+  // Check if bookId already exists
+  const existingBook = await productPlanDao.findPlanByBookId(bookId);
+
+  if (existingBook) {
+    throw new Error("BookId already exists");
+  }
 
   const payload = {
     productId,
