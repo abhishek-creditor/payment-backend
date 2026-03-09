@@ -1,10 +1,7 @@
 const axios = require("axios");
 const prisma = require("../config/prismaClient");
 
-/**
-
-* Map payment microservice events to ebook backend events
-  */
+// Map payment tilled events to ebook backend events
 function mapEvent(triggerEvent) {
   const mapping = {
     "payment_intent.succeeded": "PAYMENT_SUCCEEDED",
