@@ -244,9 +244,10 @@ exports.createPayment = async (productId, data, options = {}) => {
   // This way, if the Tilled call fails, the payment stays INITIATED and
   // can be retried safely.
   // 3. Create or get Tilled Customer
-  let tilledCustomer = null;
+   let tilledCustomer = null;
   const targetAccountId = resolvedAccountId;
-  const resolvedName = data.name || data.user_name || resolvedExternalUserId;
+  const resolvedFirstName = data.firstname || data.name || data.user_name || resolvedExternalUserId;
+  const resolvedLastName = data.lastname || '';
 
   const existingCustomerId = productUser.tilledCustomerId || extraData?.userTilledId;
   if (existingCustomerId) {
@@ -263,7 +264,8 @@ exports.createPayment = async (productId, data, options = {}) => {
   if (!tilledCustomer) {
     const tilledCustomerResponse = await TilledService.createCustomer({
       email: resolvedEmail,
-      first_name: resolvedName,
+      first_name: resolvedFirstName,
+      last_name: resolvedLastName,
       metadata: {
         externalUserId: resolvedExternalUserId,
         productId: productId
@@ -309,6 +311,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       description: `Order ${order.id}`,
       setup_future_usage: "off_session",
       payment_method_types: ["card"],
+      metadata: tilledMetadata,
       ...(platformFee && { platform_fee_amount: platformFee })
     },
     metadata: tilledMetadata

@@ -6,7 +6,10 @@ const subscriptionService = require("../subscriptions.service");
 exports.handlePaymentIntentSucceeded = async (event) => {
     const paymentIntent = event.data;
     const tilledPaymentId = paymentIntent.id;
-    const paymentMethodId = paymentIntent.payment_method_id || null;
+    const paymentMethodId = paymentIntent.payment_method?.id
+        || paymentIntent.charges?.[0]?.payment_method_id
+        || paymentIntent.payment_method_id
+        || null;
 
     console.log(`Processing successful payment intent: ${tilledPaymentId}`);
 
@@ -52,12 +55,38 @@ exports.handlePaymentIntentSucceeded = async (event) => {
                 return;
             }
 
+            // Get the customer's saved payment methods
+            // setup_future_usage: "off_session" makes Tilled auto-save the card to the customer
+            const TilledService = require("../tilled.service");
+            const customerId = paymentIntent.customer?.id || paymentIntent.customer;
+
+            if (!customerId) {
+                console.error(`No customer ID found in payment intent, cannot create subscription.`);
+                return;
+            }
+
+            const pmResponse = await TilledService.listCustomerPaymentMethods(customerId, paymentIntent.account_id);
+            console.log(`Customer payment methods:`, JSON.stringify(pmResponse.data, null, 2));
+
+            // Find the most recent chargeable payment method
+            const paymentMethods = pmResponse.data?.items || pmResponse.data || [];
+            const reusablePaymentMethod = Array.isArray(paymentMethods)
+                ? paymentMethods.find(pm => pm.chargeable === true) || paymentMethods[0]
+                : null;
+
+            if (!reusablePaymentMethod) {
+                console.error(`No saved payment methods found for customer ${customerId}. Subscription skipped.`);
+                return;
+            }
+
+            console.log(`Using payment method ${reusablePaymentMethod.id} for subscription (chargeable: ${reusablePaymentMethod.chargeable})`);
+
             const subscription = await subscriptionService.createSubscription(
                 order.productId,
                 {
                     externalUserId: metadata.user_id || order.productUser?.externalUserId,
                     productPlanId: metadata.plan_id || order.planId,
-                    paymentMethodId: paymentMethodId,
+                    paymentMethodId: reusablePaymentMethod.id,
                     tilledAccountId: paymentIntent.account_id,
                 }
             );

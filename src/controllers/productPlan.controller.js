@@ -13,8 +13,7 @@ exports.createPlan = async (req, res) => {
     if (ebook.type === "EBOOK") {
       return res.status(201).json({
         success: true,
-        // type: "EBOOK",
-        Plan_id: ebook.id,
+        planId: ebook.id,
         productId: ebook.productId,
         bookId: ebook.bookId,
       });
