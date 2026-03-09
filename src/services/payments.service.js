@@ -99,22 +99,20 @@ exports.createPayment = async (productId, data, options = {}) => {
         return {
           order: existingOrder,
           payment: newPayment,
-          duplicate: false, // Ye naya payment tha. Abhi tak payment create nahi hua tha, to is case me duplicate false hoga.
+          duplicate: false,
           productUser,
         };
       }
 
-      // Already paid
       if (latestPayment.status === "SUCCEEDED") {
         return {
           order: existingOrder,
-          duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek successful payment already exist karta hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
+          duplicate: true,
           payment: latestPayment,
           productUser,
         };
       }
 
-      // Still processing (only PROCESSING means Tilled checkout was created)
       if (latestPayment.status === "PROCESSING") {
         return {
           order: existingOrder,
@@ -124,7 +122,6 @@ exports.createPayment = async (productId, data, options = {}) => {
         };
       }
 
-      // Retry allowed (INITIATED means Tilled was never called or failed mid-flow)
       if (
         latestPayment.status === "FAILED" ||
         latestPayment.status === "CANCELLED" ||
@@ -142,12 +139,11 @@ exports.createPayment = async (productId, data, options = {}) => {
         return {
           order: existingOrder,
           payment: newPayment,
-          duplicate: false, // Ye duplicate nahi hai kyunki previous payment failed/cancelled tha, ab naya payment create kar rahe hain. Is case me retry allowed hai aur naya payment create hoga.
+          duplicate: false,
           productUser,
         };
       }
 
-      // Fallback: unknown status, treat as duplicate and return latest
       return {
         order: existingOrder,
         payment: latestPayment,
@@ -163,7 +159,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     const order = await orderDAO.createOrder(tx, {
       productId,
       productUserId: productUser.id,
-      planId: plan.id, //added this as order table expects required relation with plan table for which we need id
+      planId: plan.id,
       referenceId,
       amount,
       currency,
@@ -172,16 +168,11 @@ exports.createPayment = async (productId, data, options = {}) => {
       items,
     });
 
-    // Race condition guard: if two concurrent requests both passed the
-    // getOrderByReferenceId check above, one will hit a P2002 unique
-    // constraint error in the DAO. The DAO handles this by returning
-    // the existing order with __duplicate = true. We must check for it.
     if (order.__duplicate) {
       const latestPayment = order.payments?.sort(
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
       )[0];
 
-      // Already paid or still processing → treat as duplicate
       if (
         latestPayment?.status === "SUCCEEDED" ||
         latestPayment?.status === "PROCESSING"
@@ -194,7 +185,6 @@ exports.createPayment = async (productId, data, options = {}) => {
         };
       }
 
-      // FAILED/CANCELLED/INITIATED/no payment → allow retry with new payment
       const retryPayment = await paymentDAO.createPayment(tx, {
         orderId: order.id,
         amount,
@@ -220,6 +210,36 @@ exports.createPayment = async (productId, data, options = {}) => {
     });
 
     console.log(`Created new order ${order.id} with payment ${payment.id}`);
+
+    // ------------------------------------------
+    // LINK IDEMPOTENCY RECORD WITH ORDER/PAYMENT
+    // ------------------------------------------
+    // Inside the transaction so the link is atomic with order/payment creation.
+    // This is critical because the webhook uses orderId/paymentId to update idempotency status.
+    if (idempotencyKey) {
+      try {
+        const linkResult = await tx.idempotencyKey.updateMany({
+          where: { productId, key: idempotencyKey },
+          data: { orderId: order.id, paymentId: payment.id },
+        });
+
+        console.log("[Idempotency Link]", {
+          idempotencyKey,
+          orderId: order.id,
+          paymentId: payment.id,
+          rowsUpdated: linkResult.count,
+        });
+
+        if (linkResult.count === 0) {
+          console.warn(
+            "WARNING: No idempotency record linked. Check middleware or key mismatch.",
+          );
+        }
+      } catch (err) {
+        console.error("Failed to link idempotency record:", err);
+      }
+    }
+
     return {
       order,
       payment,
@@ -228,12 +248,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     };
   });
 
-  // ==========================================
-  // IF DUPLICATE SUCCESS → RETURN
-  // ==========================================
-
   if (result.duplicate) {
-    // Duplicate case me Tilled call nahi karenge, existing order/payment ko hi reuse karenge.
     const latestPayment = result.order.payments?.sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
     )[0];
@@ -241,47 +256,23 @@ exports.createPayment = async (productId, data, options = {}) => {
     return {
       ...result.order,
       payments: latestPayment ? [latestPayment] : [],
-      duplicate: true, // Ye duplicate hai kyunki same referenceId ke saath ek payment already exist karta hai. Naya payment create nahi hoga, existing order ko hi reuse karenge.
+      duplicate: true,
     };
   }
-  const { order, payment, productUser } = result;
 
-  // ------------------------------------------
-  // LINK IDEMPOTENCY RECORD WITH ORDER/PAYMENT
-  // ------------------------------------------
-  if (idempotencyKey) {
-    try {
-      await prisma.idempotencyKey.updateMany({
-        where: {
-          productId: productId,
-          key: idempotencyKey,
-        },
-        data: {
-          orderId: order.id,
-          paymentId: payment.id,
-        },
-      });
-    } catch (err) {
-      console.error("Failed to link idempotency record:", err);
-    }
-  }
+  const { order, payment, productUser } = result;
 
   // ==========================================
   // STEP 2: CALL TILLED
   // ==========================================
 
-  // NOTE: Payment stays INITIATED until the Tilled checkout session is
-  // successfully created. Only then do we update to PROCESSING (line below).
-  // State flow: INITIATED → PROCESSING → (SUCCEEDED / FAILED / CANCELLED)
-  // This way, if the Tilled call fails, the payment stays INITIATED and
-  // can be retried safely.
-  // 3. Create or get Tilled Customer
   let tilledCustomer = null;
   const targetAccountId = resolvedAccountId;
   const resolvedName = data.name || data.user_name || resolvedExternalUserId;
 
   const existingCustomerId =
     productUser.tilledCustomerId || extraData?.userTilledId;
+
   if (existingCustomerId) {
     try {
       const getCustomerResponse = await TilledService.getCustomer(
@@ -315,7 +306,6 @@ exports.createPayment = async (productId, data, options = {}) => {
     );
     tilledCustomer = tilledCustomerResponse.data;
 
-    // Update our DB with this most recent customer ID outside the main transaction
     await productUserDAO.updateTilledCustomerId(
       null,
       productUser.id,
@@ -323,7 +313,6 @@ exports.createPayment = async (productId, data, options = {}) => {
     );
   }
 
-  // 4. Create Tilled Checkout Session
   const lineItems = [
     {
       price_data: {
@@ -337,7 +326,6 @@ exports.createPayment = async (productId, data, options = {}) => {
     },
   ];
 
-  // Calculate platform fee: 20% for Ebook products
   const isEbook = plan.product.name?.toLowerCase() === "ebook";
   const platformFee = isEbook ? Math.round(amount * 0.2) : null;
 
@@ -397,103 +385,4 @@ exports.createPayment = async (productId, data, options = {}) => {
     duplicate: false,
     checkoutUrl: checkoutSession?.url,
   };
-};
-
-/**
- * GET PAYMENTS
- */
-exports.getPayments = async (productId, query = {}) => {
-  return await orderDAO.getOrders(null, { ...query, productId });
-};
-
-/**
- * GET PAYMENT BY ID
- */
-exports.getPaymentById = async (productId, id) => {
-  return await orderDAO.getOrderByIdAndProduct(null, id, productId, {
-    items: true,
-    payments: true,
-    productUser: true,
-  });
-};
-
-/**
- * REFUND PAYMENT
- *
- * State Machine:
- * 1️⃣ Validate balance
- * 2️⃣ Create Refund(PENDING)
- * 3️⃣ Commit
- * 4️⃣ Call Tilled
- * 5️⃣ Finalize SUCCEEDED / FAILED
- */
-exports.refundPayment = async (
-  productId,
-  orderId,
-  refundData,
-  options = {},
-) => {
-  const { idempotencyKey } = options;
-  const { amount, reason } = refundData;
-
-  if (!amount || amount <= 0) {
-    const error = new Error("Invalid refund amount");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const { refund, payment } = await prisma.$transaction(async (tx) => {
-    const order = await orderDAO.getOrderByIdAndProduct(
-      tx,
-      orderId,
-      productId,
-      { payments: true, refunds: true },
-    );
-
-    if (!order) {
-      const error = new Error("Order not found");
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const successfulPayment = order.payments.find(
-      (p) => p.status === "SUCCEEDED",
-    );
-
-    if (!successfulPayment) {
-      const error = new Error("No successful payment found");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const totalRefunded = successfulPayment.refunds.reduce(
-      (sum, r) => sum + r.amount,
-      0,
-    );
-
-    if (amount > successfulPayment.amount - totalRefunded) {
-      const error = new Error("Refund exceeds available balance");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const refund = await refundDAO.createRefund(tx, {
-      paymentId: successfulPayment.id,
-      amount,
-      reason,
-      status: "PENDING",
-    });
-
-    return { refund, payment: successfulPayment };
-  });
-
-  // TILLED TEAM: Implement actual Tilled API call here
-  // const tilledRefund = await TilledService.refundPayment(...);
-
-  await refundDAO.updateRefund(null, refund.id, {
-    status: "SUCCEEDED",
-    tilledRefundId: "simulated_tilled_refund_id",
-  });
-
-  return refund;
 };

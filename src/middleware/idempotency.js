@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const stringify = require("fast-json-stable-stringify");
 const prisma = require("../config/prismaClient");
+const { IdempotencyStatus } = require("@prisma/client");
 
 // 50 minutes TTL time (via .env) after that Record will auto-expire and allow new requests with same key and delete
 const IDEMPOTENCY_TTL_SECONDS = parseInt(
@@ -19,6 +20,11 @@ module.exports = async function idempotency(req, res, next) {
   if (!key) return next();
 
   const productId = req.productId;
+  console.log(
+    "[Idempotency Middleware] Received request with Idempotency-Key: %s and product ID: %s",
+    key,
+    productId,
+  );
   if (!productId) return next();
 
   req.idempotencyKey = key;
@@ -57,9 +63,6 @@ module.exports = async function idempotency(req, res, next) {
 
   try {
     // ─── STEP 1: Atomic CREATE (optimistic lock) ──────────────────────────────
-    // Try to insert a fresh IN_PROGRESS record.
-    // If it succeeds, this request is the sole owner.
-    // If it throws a unique constraint error, the key already exists → fall through to catch.
     record = await prisma.idempotencyKey.create({
       data: {
         productId,
@@ -77,7 +80,6 @@ module.exports = async function idempotency(req, res, next) {
     res.setHeader("Idempotency-Replayed", "false");
     console.log("[Idempotency] New lock created, owner:", record.id);
   } catch {
-    // ─── STEP 2: Key already exists — inspect existing record ────────────────
     console.log("Idempotency Key already exists, fetching record...");
 
     record = await prisma.idempotencyKey.findUnique({
@@ -85,8 +87,6 @@ module.exports = async function idempotency(req, res, next) {
     });
 
     if (!record) {
-      // Race: another request deleted it between our CREATE fail and this read.
-      // Safest option is to treat it as an internal error and let client retry.
       return res.status(500).json({
         error: "Idempotency lookup failed RECORD_NOT_FOUND",
       });
@@ -114,11 +114,10 @@ module.exports = async function idempotency(req, res, next) {
     if (record.status === "COMPLETED") {
       res.setHeader("Idempotency-Replayed", "true");
       return res
-        .status(record.responseStatusCode || 200) // Changed to 200 for idempotency replayed payload
+        .status(record.responseStatusCode || 200)
         .json(record.responseBody);
     }
 
-    // IN_PROGRESS Handling
     if (record.status === "IN_PROGRESS") {
       if (record.responseBody) {
         res.setHeader("Idempotency-Replayed", "true");
@@ -127,41 +126,20 @@ module.exports = async function idempotency(req, res, next) {
           .json(record.responseBody);
       }
 
-      // IMPORTANT:
-      // Prevent duplicate order creation using referenceId.
-      // Even on retry or crash recovery, same order will be reused.
-      // work only if system down, crash etc.
       const age = (Date.now() - new Date(record.createdAt).getTime()) / 1000;
-      // 60 seonds se kam hai to processing me hai aur 60 seconds se zyada hai retry karlo
+
       if (age < IN_PROGRESS_TIMEOUT_SECONDS) {
         return res.status(409).json({
           error: "Request is currently processing",
         });
       }
 
-      // [OLD] Stale lock recovery
-      // await prisma.idempotencyKey.update({
-      //   where: { id: record.id },
-      //   data: {
-      //     status: "IN_PROGRESS",
-      //     requestHash,
-      //     expiresAt,
-      //   },
-      // });
-      //   isOwner = true; // Allow this request to proceed Q ki ya Request new owner bana raha hai stale lock ka
-      //   res.setHeader("Idempotency-Replayed", "false");
-      // }
-
-      // [NEW] Stale lock recovery (atomic)
-      // WHERE guards ensure only one concurrent request wins.
-      // The loser gets a Prisma P2025 and is rejected in the catch below.
       try {
         record = await prisma.idempotencyKey.update({
           where: {
             id: record.id,
-            status: "IN_PROGRESS", // guard: must still be in-progress
+            status: "IN_PROGRESS",
             createdAt: {
-              // guard: must actually be stale
               lt: new Date(Date.now() - IN_PROGRESS_TIMEOUT_SECONDS * 1000),
             },
           },
@@ -180,27 +158,20 @@ module.exports = async function idempotency(req, res, next) {
       }
     }
 
-    // FAILED / CANCELLED → Allow Retry
     if (record.status === "FAILED" || record.status === "CANCELLED") {
-      // await prisma.idempotencyKey.delete({
-      // where: { id: record.id },
-      // });
-      // return next();
       const { count } = await prisma.idempotencyKey.deleteMany({
         where: {
           id: record.id,
-          status: { in: ["FAILED", "CANCELLED"] }, // atomic guard
+          status: { in: ["FAILED", "CANCELLED"] },
         },
       });
 
       if (count === 0) {
-        // Another request already claimed this retry slot
         return res.status(409).json({
           error: "A request with this Idempotency-Key is already in progress.",
         });
       }
 
-      // Won the race — re-insert fresh record so res.json has a valid ID to finalize
       record = await prisma.idempotencyKey.create({
         data: {
           productId,
@@ -219,12 +190,6 @@ module.exports = async function idempotency(req, res, next) {
     }
   }
 
-  // IMPORTANT:
-  // Sirf wahi request idempotency record finalize karegi jo lock ki owner hai.
-  // Agar ye request owner nahi hai (duplicate / replay case),
-  // to aage ka status update logic run nahi hoga.
-  // Isse multiple requests ek hi record ko modify nahi kar sakti
-  // aur race condition prevent hoti hai.
   if (!isOwner) {
     console.warn(
       "[Idempotency] Reached owner gate without owning lock — dropping.",
@@ -248,7 +213,6 @@ module.exports = async function idempotency(req, res, next) {
     try {
       const statusCode = res.__statusCode ?? 200;
 
-      // 5xx → delete (retry allowed)
       if (statusCode >= 500) {
         await prisma.idempotencyKey.delete({
           where: { id: recordId },
@@ -256,14 +220,25 @@ module.exports = async function idempotency(req, res, next) {
         return originalJson(body);
       }
 
-      // SAFE STATUS MAPPING
       const paymentStatus = body?.status || body?.data?.payments?.[0]?.status;
 
-      // If status not found → allow safe retry
       if (!paymentStatus) {
-        await prisma.idempotencyKey.delete({
-          where: { id: recordId },
+        // No payment status in body — keep record as IN_PROGRESS, save the response
+        const curr = await prisma.idempotencyKey.findUnique({
+          where: { id: record.id },
         });
+        if (
+          curr &&
+          !["FAILED", "CANCELLED", "COMPLETED"].includes(curr.status)
+        ) {
+          await prisma.idempotencyKey.update({
+            where: { id: record.id },
+            data: {
+              responseStatusCode: statusCode,
+              responseBody: body,
+            },
+          });
+        }
         return originalJson(body);
       }
 
@@ -281,29 +256,51 @@ module.exports = async function idempotency(req, res, next) {
       } else if (paymentStatus === "SUCCEEDED") {
         finalStatus = "COMPLETED";
       } else {
-        // Unknown status — safe fallback based on HTTP status code
         finalStatus =
           statusCode >= 200 && statusCode < 300 ? "COMPLETED" : "FAILED";
       }
 
-      await prisma.idempotencyKey.update({
-        where: { id: recordId },
-        data: {
-          status: finalStatus,
-          responseStatusCode: statusCode,
-          responseBody: body,
+      // 🔧 FIX: Always reload the latest status from DB before writing.
+      // Webhook may have updated the record already.
+      const existing = await prisma.idempotencyKey.findUnique({
+        where: { id: record.id },
+      });
 
-          // Capture orderId/paymentId from response if available
-          orderId: body?.id || body?.orderId || null,
-          paymentId: body?.payments?.[0]?.id || null,
-        },
+      // 🔧 IMPORTANT: Webhook priority check
+      if (
+        !existing ||
+        ["FAILED", "CANCELLED", "COMPLETED"].includes(existing.status)
+      ) {
+        console.log(
+          "[Idempotency] Status already finalized or missing, skipping update.",
+        );
+        return originalJson(body);
+      }
+
+      // 🔧 FIX: Conditional ID update to prevent null overwrites
+      const updateData = {
+        status: finalStatus,
+        responseStatusCode: statusCode,
+        responseBody: body,
+      };
+
+      if (body?.data?.id) updateData.orderId = body.data.id;
+      if (body?.data?.payments?.[0]?.id)
+        updateData.paymentId = body.data.payments[0].id;
+
+      await prisma.idempotencyKey.update({
+        where: { id: record.id },
+        data: updateData,
+      });
+
+      console.log("[Idempotency Finalized]", {
+        recordId: record.id,
+        status: finalStatus,
       });
     } catch (err) {
       console.error("Idempotency finalize error:", err);
     }
-
     return originalJson(body);
   };
-
   next();
 };
