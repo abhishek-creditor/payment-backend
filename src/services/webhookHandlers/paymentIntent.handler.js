@@ -153,47 +153,6 @@ exports.handlePaymentIntentSucceeded = async (event) => {
         }
     }
 
-  // ---------------------------
-  // AUTO CREATE SUBSCRIPTION
-  // ---------------------------
-
-  const metadata = paymentIntent.metadata || {};
-
-  if (metadata.billing_type === "RECURRING" && paymentMethodId) {
-    try {
-      const order = await orderDAO.getOrderById(null, payment.orderId, {
-        productUser: true,
-      });
-
-      if (!order) {
-        console.error(`Order ${payment.orderId} not found`);
-        return;
-      }
-
-      const subscription = await subscriptionService.createSubscription(
-        order.productId,
-        {
-          externalUserId: metadata.user_id || order.productUser?.externalUserId,
-          productPlanId: metadata.plan_id || order.planId,
-          paymentMethodId: paymentMethodId,
-          tilledAccountId: paymentIntent.account_id,
-        },
-      );
-
-      await orderDAO.updateOrder(null, order.id, {
-        subscriptionId: subscription.id,
-      });
-
-      console.log(
-        `Subscription ${subscription.id} created and linked to order ${order.id}`,
-      );
-    } catch (err) {
-      console.error(
-        `Failed to auto-create subscription for order ${payment.orderId}:`,
-        err.message,
-      );
-    }
-  }
 };
 
 // ---> Handle failed payment intent
