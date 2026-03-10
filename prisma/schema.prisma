@@ -426,6 +426,8 @@ enum OrderStatus {
 enum IdempotencyStatus {
   IN_PROGRESS
   COMPLETED
+  FAILED
+  CANCELLED
 }
 
 enum PaymentStatus {
