@@ -119,7 +119,6 @@ exports.createPayment = async (productId, data, options = {}) => {
           order: existingOrder,
           payment: latestPayment,
           duplicate: true,
-          duplicate: true,
           productUser,
         };
       }
@@ -127,8 +126,6 @@ exports.createPayment = async (productId, data, options = {}) => {
       // Retry allowed (INITIATED means Tilled was never called or failed mid-flow)
       if (
         latestPayment.status === "FAILED" ||
-        latestPayment.status === "CANCELLED" ||
-        latestPayment.status === "INITIATED"
         latestPayment.status === "CANCELLED" ||
         latestPayment.status === "INITIATED"
       ) {
@@ -169,7 +166,6 @@ exports.createPayment = async (productId, data, options = {}) => {
       amount,
       currency,
       status: "CREATED",
-      orderType: plan.billingType === "RECURRING" ? "SUBSCRIPTION" : "ONE_TIME",
       orderType: plan.billingType === "RECURRING" ? "SUBSCRIPTION" : "ONE_TIME",
       items,
     });
@@ -361,9 +357,8 @@ exports.createPayment = async (productId, data, options = {}) => {
       payment_method_types: ["card"],
       metadata: tilledMetadata,
       ...(platformFee && { platform_fee_amount: platformFee })
-    },
-    targetAccountId,
-  );
+    }
+  }, targetAccountId);
 
   console.log("Checkout Session Response:", checkoutSessionResponse);
 
