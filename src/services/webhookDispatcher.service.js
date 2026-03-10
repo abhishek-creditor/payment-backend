@@ -130,8 +130,15 @@ async function attemptDelivery(config, orderId, payload) {
         statusCode: error.response?.status || "NO_RESPONSE",
         errorMessage: error.message,
         responseData: error.response?.data || null,
-        code: error.code || null, // ECONNREFUSED, ENOTFOUND, ETIMEDOUT etc.
+        code: error.code || null,
       });
+
+      // Don't retry on 4xx errors - these are permanent failures
+      const status = error.response?.status;
+      if (status && status >= 400 && status < 500) {
+        console.error(`Skipping retries - got ${status} (client error, retry won't help)`);
+        return;
+      }
 
       if (attempt === maxRetries) {
         return;
