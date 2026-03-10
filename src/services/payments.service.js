@@ -54,8 +54,8 @@ exports.createPayment = async (productId, data, options = {}) => {
     },
   });
   if (!plan) {
-    console.log("Invalid productPlanId", productPlanId);
-    throw new Error("Invalid productPlanId");
+    console.log("Invalid ProductId or productPlanId", productPlanId);
+    throw new Error("Invalid ProductId or productPlanId");
   }
   if (!plan.price || !plan.currency) {
     throw new Error("Invalid plan configuration");
