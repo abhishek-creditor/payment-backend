@@ -33,7 +33,7 @@ async function resolvePayment(paymentIntent) {
   return payment;
 }
 
-// 🔧 FIX: Helper to update idempotency status reliably.
+// FIX: Helper to update idempotency status reliably.
 // Prisma v6 rejects string enum values inside $transaction callbacks.
 // Workaround: use raw SQL which bypasses ORM validation entirely.
 async function updateIdempotencyStatus(tx, payment, newStatus) {
