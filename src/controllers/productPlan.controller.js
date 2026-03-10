@@ -1,33 +1,38 @@
 const productPlanDao = require("../dao/productPlan.dao");
 const productPlanService = require("../services/productPlan.service");
+const EBOOK_PRODUCT_ID =
+  process.env.EBOOK_PRODUCT_ID || "5d08e409-3dc6-4584-82ea-5e29af446144";
 
-// Create Plan
 exports.createPlan = async (req, res) => {
-  console.log(productPlanService)
   try {
 
-    // Get response from service which handle ebook
-    const ebook = await productPlanService.createPlanService(req.body);
+    const { productId } = req.body;
+    console.log("Creating plan for productId:", productId);
+    // Ebook Flow
+    if (productId === EBOOK_PRODUCT_ID) {
+      const ebook = await productPlanService.createPlanService(req.body);
 
-    // Ebook Response
-    if (ebook.type === "EBOOK") {
       return res.status(201).json({
         success: true,
-        // type: "EBOOK",
-        Plan_id: ebook.id,
+        planId: ebook.id,
         productId: ebook.productId,
         bookId: ebook.bookId,
       });
     }
 
-    // default flow for other products
+    // Default Flow (Non Ebook)
     const plan = await productPlanDao.createPlan(req.body);
+
     res.status(201).json({
       success: true,
       data: plan,
     });
+
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 

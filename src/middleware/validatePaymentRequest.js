@@ -31,9 +31,9 @@ exports.validateCreatePayment = [
 
   body()
     .custom((value, { req }) => {
-      const name = req.body.name || req.body.user_name;
+      const name = req.body.name || req.body.user_name || req.body.firstname;
       if (!name || typeof name !== "string" || name.trim() === "") {
-        throw new Error("name or user_name must be a valid string");
+        throw new Error("name, user_name, or firstname must be a valid string");
       }
       if (name.length > 100) {
         throw new Error("name must be under 100 characters");
