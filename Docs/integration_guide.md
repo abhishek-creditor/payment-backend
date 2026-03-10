@@ -539,7 +539,7 @@ The following describes the exact flow as implemented in the code:
 | `400` | `"Invalid refund amount"` | `amount` ≤ 0 |
 | `400` | `"No successful payment found"` | Refund attempted on order with no `SUCCEEDED` payment |
 | `400` | `"Refund exceeds available balance"` | `amount` > (paid amount − previously refunded) |
-| `400` | `"Invalid productPlanId"` | `productPlanId` not found or inactive for your product |
+| `400` | `"Invalid ProductId or productPlanId"` | `ProductId or productPlanId` not found or inactive for your product |
 | `400` | `"Invalid plan configuration"` | Plan has no `price` or `currency` |
 | `404` | `"Order not found"` | Order ID not found or belongs to a different product |
 | `404` | `"Payment not found"` | Order ID not found on `GET /api/payments/:id` |

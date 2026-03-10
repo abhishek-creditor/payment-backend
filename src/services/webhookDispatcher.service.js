@@ -79,7 +79,7 @@ async function attemptDelivery(config, orderId, payload) {
         url: config.callbackUrl,
         data: payload,
         headers,
-        timeout: 5000,
+        timeout: 100000,
       });
 
       await prisma.outgoingWebhookDelivery.create({
