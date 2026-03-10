@@ -82,40 +82,63 @@ async function attemptDelivery(config, orderId, payload) {
         timeout: 100000,
       });
 
-      await prisma.outgoingWebhookDelivery.create({
-        data: {
-          configId: config.id,
-          orderId,
-          attemptNumber: attempt,
-          statusCode: response.status,
-          requestBody: payload,
-          responseBody: JSON.stringify(response.data),
-          success: true,
-          deliveredAt: new Date(),
-        },
-      });
+      // Save success record (don't let DB error crash the flow)
+      try {
+        await prisma.outgoingWebhookDelivery.create({
+          data: {
+            configId: config.id,
+            orderId,
+            attemptNumber: attempt,
+            statusCode: response.status,
+            requestBody: payload,
+            responseBody: JSON.stringify(response.data),
+            success: true,
+            deliveredAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.error("Failed to save SUCCESS delivery record to DB:", dbErr.message);
+      }
 
-      console.log("Webhook delivered successfully");
+      console.log(`Webhook delivered successfully to ${config.callbackUrl} (status: ${response.status})`);
       return;
 
     } catch (error) {
 
-      await prisma.outgoingWebhookDelivery.create({
-        data: {
-          configId: config.id,
-          orderId,
-          attemptNumber: attempt,
-          statusCode: error.response?.status || null,
-          requestBody: payload,
-          responseBody: error.response?.data
-            ? JSON.stringify(error.response.data)
-            : null,
-          errorMessage: error.message,
-          success: false,
-        },
+      // Save failure record (don't let DB error crash the retry loop)
+      try {
+        await prisma.outgoingWebhookDelivery.create({
+          data: {
+            configId: config.id,
+            orderId,
+            attemptNumber: attempt,
+            statusCode: error.response?.status || null,
+            requestBody: payload,
+            responseBody: error.response?.data
+              ? JSON.stringify(error.response.data)
+              : null,
+            errorMessage: error.message,
+            success: false,
+          },
+        });
+      } catch (dbErr) {
+        console.error("Failed to save FAILED delivery record to DB:", dbErr.message);
+      }
+
+      console.error(`Webhook delivery FAILED attempt ${attempt}/${maxRetries}:`, {
+        url: config.callbackUrl,
+        statusCode: error.response?.status || "NO_RESPONSE",
+        errorMessage: error.message,
+        responseData: error.response?.data || null,
+        code: error.code || null,
       });
 
-      console.error("Webhook delivery failed attempt:", attempt);
+      // Don't retry on 4xx errors - these are permanent failures
+      const status = error.response?.status;
+      if (status && status >= 400 && status < 500) {
+        console.error(`Skipping retries - got ${status} (client error, retry won't help)`);
+        return;
+      }
 
       if (attempt === maxRetries) {
         return;

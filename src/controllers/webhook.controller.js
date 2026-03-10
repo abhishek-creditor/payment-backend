@@ -41,9 +41,15 @@ exports.webhook = async (req, res) => {
                 payload: event
             });
 
+            // If event was already processed before, skip (prevents duplicate dispatch)
+            if (dbEvent.processed) {
+                console.log(`Already processed webhook event, skipping: ${event.type} / ${event.id}`);
+                return res.json({ received: true, duplicate: true });
+            }
+
         } catch (err) {
             console.error("Failed to save webhook to DB:", err.message);
-            // We continue processing even if logging fails, 
+            // For DB errors, continue processing
         }
 
         // 4. HANDLE EVENTS
@@ -109,11 +115,11 @@ exports.webhook = async (req, res) => {
 
         } catch (err) {
             console.error(`Error processing webhook event '${event.type}':`, err);
-             // Return 500 if the internal logic fails so Tilled retries
+            // Return 500 if the internal logic fails so Tilled retries
             return res.status(500).send("Internal processing error");
         }
 
-         // Return a 200 response to acknowledge receipt of the event
+        // Return a 200 response to acknowledge receipt of the event
         res.json({ received: true });
 
     } catch (error) {
