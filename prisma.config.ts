@@ -4,7 +4,7 @@ import { config } from "dotenv";
 import { defineConfig } from "prisma/config";
 
 // Load environment variables based on NODE_ENV
-const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".env.development";
+const envFile = process.env.env === "production" ? ".env.production" : ".env.development";
 config({ path: `${process.cwd()}/${envFile}` });
 
 const databaseUrl = process.env["DATABASE_URL"];
