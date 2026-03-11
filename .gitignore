@@ -1,8 +1,17 @@
-.DS_Store
-
+# Dependencies
 node_modules
+
+# Environment variables
 .env.development
 .env.production
 .env
+
+# Pem Keys
 payment.pem
 
+# Scripts
+script.sh
+connectAWS.sh
+
+# OS generated files
+.DS_Store
