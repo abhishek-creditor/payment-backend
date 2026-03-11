@@ -12,7 +12,7 @@ function mapEvent(triggerEvent) {
   return mapping[triggerEvent] || triggerEvent;
 }
 
-async function dispatch(orderId, triggerEvent) {
+async function dispatch(orderId, triggerEvent, eventId) {
   try {
     console.log(`Webhook sending for Order ID: ${orderId} | Event: ${triggerEvent}`);
 
@@ -56,6 +56,7 @@ async function dispatch(orderId, triggerEvent) {
       orderId: order.id,
       referenceId: order.referenceId,
       status: payment.status,
+      eventId: eventId, // Added for deduplication on the receiving end
       timestamp: new Date().toISOString(),
     };
 
@@ -96,26 +97,16 @@ async function attemptDelivery(config, orderId, payload) {
             statusCode: response.status,
             requestBody: payload,
             responseBody: JSON.stringify(response.data),
-<<<<<<< HEAD
             errorMessage: null,
-=======
->>>>>>> e524f3fbd26405483eb426715ffc3937a9adde5d
             success: true,
             deliveredAt: new Date(),
           },
         });
       } catch (dbErr) {
-<<<<<<< HEAD
         console.error(`Webhook DB record save failed for Order ID: ${orderId} | Error: ${dbErr.message}`);
       }
 
       console.log(`Webhook SUCCESS for Order ID: ${orderId} | URL: ${config.callbackUrl} | Status: ${response.status}`);
-=======
-        console.error("Failed to save SUCCESS delivery record to DB:", dbErr.message);
-      }
-
-      console.log(`Webhook delivered successfully to ${config.callbackUrl} (status: ${response.status})`);
->>>>>>> e524f3fbd26405483eb426715ffc3937a9adde5d
       return;
 
     } catch (error) {
@@ -137,22 +128,12 @@ async function attemptDelivery(config, orderId, payload) {
           },
         });
       } catch (dbErr) {
-<<<<<<< HEAD
         console.error(`Webhook DB record save failed for Order ID: ${orderId} | Error: ${dbErr.message}`);
       }
 
       console.error(`Webhook FAILED for Order ID: ${orderId} | Attempt: ${attempt}/${maxRetries} | Error: ${error.message}`, {
         url: config.callbackUrl,
         statusCode: error.response?.status || "NO_RESPONSE",
-=======
-        console.error("Failed to save FAILED delivery record to DB:", dbErr.message);
-      }
-
-      console.error(`Webhook delivery FAILED attempt ${attempt}/${maxRetries}:`, {
-        url: config.callbackUrl,
-        statusCode: error.response?.status || "NO_RESPONSE",
-        errorMessage: error.message,
->>>>>>> e524f3fbd26405483eb426715ffc3937a9adde5d
         responseData: error.response?.data || null,
         code: error.code || null,
       });
@@ -160,19 +141,12 @@ async function attemptDelivery(config, orderId, payload) {
       // Don't retry on 4xx errors - these are permanent failures
       const status = error.response?.status;
       if (status && status >= 400 && status < 500) {
-<<<<<<< HEAD
         console.error(`Webhook FAILED for Order ID: ${orderId} | Skipping retries - got ${status} (client error, retry won't help)`);
-=======
-        console.error(`Skipping retries - got ${status} (client error, retry won't help)`);
->>>>>>> e524f3fbd26405483eb426715ffc3937a9adde5d
         return;
       }
 
       if (attempt === maxRetries) {
-<<<<<<< HEAD
         console.error(`Webhook EXHAUSTED all ${maxRetries} retries for Order ID: ${orderId} | URL: ${config.callbackUrl}`);
-=======
->>>>>>> e524f3fbd26405483eb426715ffc3937a9adde5d
         return;
       }
 
