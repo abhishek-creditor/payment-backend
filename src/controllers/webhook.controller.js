@@ -6,6 +6,7 @@ const subscriptionHandler = require("../services/webhookHandlers/subscription.ha
 const chargeHandler = require("../services/webhookHandlers/charge.handler");
 
 exports.webhook = async (req, res) => {
+
     const signature = req.headers["tilled-signature"];
 
     if (!signature) {
@@ -14,7 +15,7 @@ exports.webhook = async (req, res) => {
     }
 
     try {
-        // 1. Verify Signature
+        // 1. VERIFY TILLED WEBHOOK SIGNATURE
         const rawBodyContent = req.rawBody || JSON.stringify(req.body);
 
         try {
@@ -26,24 +27,35 @@ exports.webhook = async (req, res) => {
         }
 
         // 2. Parse Event
-        const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        const event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
         console.log(`Received Tilled webhook event: ${event.type}`);
 
         // 3. Save Webhook Event to DB
         let dbEvent;
+
         try {
+
             dbEvent = await webhookEventDAO.createEvent(null, {
                 eventType: event.type,
                 tilledId: event.id,
                 payload: event
             });
+
+            // If event was already processed before, skip (prevents duplicate dispatch)
+            if (dbEvent.processed) {
+                console.log(`Already processed webhook event, skipping: ${event.type} / ${event.id}`);
+                return res.json({ received: true, duplicate: true });
+            }
+
         } catch (err) {
             console.error("Failed to save webhook to DB:", err.message);
-            // We continue processing even if logging fails
+            // For DB errors, continue processing
         }
 
-        // 4. Handle Event
+        // 4. HANDLE EVENTS
+
         try {
+
             switch (event.type) {
                 // ==========================
                 // PAYMENT INTENT EVENTS
@@ -51,9 +63,11 @@ exports.webhook = async (req, res) => {
                 case "payment_intent.succeeded":
                     await paymentIntentHandler.handlePaymentIntentSucceeded(event);
                     break;
+
                 case "payment_intent.payment_failed":
                     await paymentIntentHandler.handlePaymentIntentFailed(event);
                     break;
+
                 case "payment_intent.canceled":
                     await paymentIntentHandler.handlePaymentIntentCanceled(event);
                     break;
@@ -91,7 +105,7 @@ exports.webhook = async (req, res) => {
                     break;
 
                 default:
-                    console.log(`Unhandled or purely logged event type: ${event.type}`);
+                    console.log(`Unhandled event type: ${event.type}`);
             }
 
             // Mark Webhook as Processed
@@ -109,7 +123,9 @@ exports.webhook = async (req, res) => {
         res.json({ received: true });
 
     } catch (error) {
+
         console.error(`Webhook Wrapper Error: ${error.message}`);
         res.status(500).send("Internal Server Error");
     }
+
 };
