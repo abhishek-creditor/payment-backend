@@ -1,1 +1,5 @@
+To use production env you have to save env as production before calling the production env as it defaults o the development env
+
+Like it is demonstrated below for the command "npx prisma studio"
+
 env=production npx prisma studio 
