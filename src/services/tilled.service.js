@@ -140,6 +140,12 @@ class TilledService {
         return await this._makeRequest(`/payment-methods?customer_id=${customerId}&type=card`, 'GET', null, tilledAccountId);
     }
 
+    static async attachPaymentMethodToCustomer(paymentMethodId, customerId, tilledAccountId) {
+        return await this._makeRequest(`/payment-methods/${paymentMethodId}/attach`, 'PUT', {
+            customer_id: customerId
+        }, tilledAccountId);
+    }
+
     static async createRefund(refundData, tilledAccountId) {
         return await this._makeRequest('/refunds', 'POST', refundData, tilledAccountId);
     }

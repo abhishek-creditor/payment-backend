@@ -74,3 +74,22 @@ exports.validateCreatePayment = [
 
   handleValidation
 ];
+
+/**
+ * CONFIRM SUBSCRIPTION PAYMENT VALIDATION
+ */
+exports.validateConfirmPayment = [
+  body("orderId")
+    .exists().withMessage("orderId is required")
+    .isString().withMessage("orderId must be a string")
+    .trim()
+    .notEmpty().withMessage("orderId cannot be empty"),
+
+  body("payment_method_id")
+    .exists().withMessage("payment_method_id is required")
+    .isString().withMessage("payment_method_id must be a string")
+    .trim()
+    .notEmpty().withMessage("payment_method_id cannot be empty"),
+
+  handleValidation
+];

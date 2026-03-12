@@ -27,6 +27,24 @@ router.post(
 );
 
 /**
+ * @route   POST /api/payments/confirm
+ * @desc    Confirm a subscription payment with a Tilled.js payment_method_id
+ * @access  Requires API key with "charge" permission, but since it's called 
+ *          from the frontend payment page, we allow it without strict API key 
+ *          if the orderId matches an INITIATED order (or we can use a temporary token).
+ *          For now, we will trust the API key if provided via the frontend proxy.
+ */
+router.post(
+  "/confirm",
+  // The frontend needs a way to call this. If the frontend payment page has the key,
+  // we can keep requirePermissions.
+  requirePermissions(["charge"]), 
+  exports.validateConfirmPayment = require("../middleware/validatePaymentRequest").validateConfirmPayment,
+  idempotency,
+  controller.confirmPayment
+);
+
+/**
  * @route   GET /api/payments
  * @desc    Get all payments/orders
  * @access  Requires API key with "read" permission

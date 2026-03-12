@@ -59,7 +59,7 @@ async function createEbookPlan(data) {
     name,
     description: description || null,
     price,
-    currency: currency || "USD",
+    currency: currency || "usd",
     billingType: "ONE_TIME",
     interval: interval || null,
     intervalCount: intervalCount || null,
