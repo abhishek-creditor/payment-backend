@@ -8,6 +8,7 @@ node_modules
 
 # Pem Keys
 payment.pem
+payment-backend.pem
 
 # Scripts
 script.sh
