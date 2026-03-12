@@ -12,56 +12,61 @@ function mapEvent(triggerEvent) {
   return mapping[triggerEvent] || triggerEvent;
 }
 
-async function dispatch(orderId, triggerEvent) {
-  console.log("Dispatching webhook for order:", orderId);
+async function dispatch(orderId, triggerEvent, eventId) {
+  try {
+    console.log(`Webhook sending for Order ID: ${orderId} | Event: ${triggerEvent}`);
 
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: {
-      product: true,
-      payments: true,
-    },
-  });
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        product: true,
+        payments: true,
+      },
+    });
 
-  if (!order) {
-    console.error("Order not found for dispatch");
-    return;
-  }
+    if (!order) {
+      console.error(`Webhook FAILED for Order ID: ${orderId} | Error: Order not found`);
+      return;
+    }
 
-  const payment = order.payments?.sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  )[0];
+    const payment = order.payments?.sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    )[0];
 
-  if (!payment) {
-    console.error("No payment found for order");
-    return;
-  }
+    if (!payment) {
+      console.error(`Webhook FAILED for Order ID: ${orderId} | Error: No payment found for order`);
+      return;
+    }
 
-  const configs = await prisma.productWebhookConfig.findMany({
-    where: {
-      productId: order.productId,
-      triggerEvent: triggerEvent,
-      isActive: true,
-    },
-  });
+    const configs = await prisma.productWebhookConfig.findMany({
+      where: {
+        productId: order.productId,
+        triggerEvent: triggerEvent,
+        isActive: true,
+      },
+    });
 
-  if (!configs.length) {
-    console.log("No webhook config found for event:", triggerEvent);
-    return;
-  }
+    if (!configs.length) {
+      console.log(`Webhook skipped for Order ID: ${order.id} | No webhook config found for event: ${triggerEvent}`);
+      return;
+    }
 
-  const payload = {
-    event: mapEvent(triggerEvent),
-    orderId: order.id,
-    referenceId: order.referenceId,
-    status: payment.status,
-    timestamp: new Date().toISOString(),
-  };
+    const payload = {
+      event: mapEvent(triggerEvent),
+      orderId: order.id,
+      referenceId: order.referenceId,
+      status: payment.status,
+      eventId: eventId, // Added for deduplication on the receiving end
+      timestamp: new Date().toISOString(),
+    };
 
-  console.log("Payload being sent to webhook:", payload);
+    console.log(`Webhook payload for Order ID: ${order.id}:`, payload);
 
-  for (const config of configs) {
-    await attemptDelivery(config, order.id, payload);
+    for (const config of configs) {
+      await attemptDelivery(config, order.id, payload);
+    }
+  } catch (err) {
+    console.error(`Webhook dispatch crashed for Order ID: ${orderId} | Error: ${err.message}`);
   }
 }
 
@@ -82,47 +87,72 @@ async function attemptDelivery(config, orderId, payload) {
         timeout: 100000,
       });
 
-      await prisma.outgoingWebhookDelivery.create({
-        data: {
-          configId: config.id,
-          orderId,
-          attemptNumber: attempt,
-          statusCode: response.status,
-          requestBody: payload,
-          responseBody: JSON.stringify(response.data),
-          success: true,
-          deliveredAt: new Date(),
-        },
-      });
+      // Save success record (don't let DB error crash the flow)
+      try {
+        await prisma.outgoingWebhookDelivery.create({
+          data: {
+            configId: config.id,
+            orderId,
+            attemptNumber: attempt,
+            statusCode: response.status,
+            requestBody: payload,
+            responseBody: JSON.stringify(response.data),
+            errorMessage: null,
+            success: true,
+            deliveredAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.error(`Webhook DB record save failed for Order ID: ${orderId} | Error: ${dbErr.message}`);
+      }
 
-      console.log("Webhook delivered successfully");
+      console.log(`Webhook SUCCESS for Order ID: ${orderId} | URL: ${config.callbackUrl} | Status: ${response.status}`);
       return;
 
     } catch (error) {
 
-      await prisma.outgoingWebhookDelivery.create({
-        data: {
-          configId: config.id,
-          orderId,
-          attemptNumber: attempt,
-          statusCode: error.response?.status || null,
-          requestBody: payload,
-          responseBody: error.response?.data
-            ? JSON.stringify(error.response.data)
-            : null,
-          errorMessage: error.message,
-          success: false,
-        },
+      // Save failure record (don't let DB error crash the retry loop)
+      try {
+        await prisma.outgoingWebhookDelivery.create({
+          data: {
+            configId: config.id,
+            orderId,
+            attemptNumber: attempt,
+            statusCode: error.response?.status || null,
+            requestBody: payload,
+            responseBody: error.response?.data
+              ? JSON.stringify(error.response.data)
+              : null,
+            errorMessage: error.message,
+            success: false,
+          },
+        });
+      } catch (dbErr) {
+        console.error(`Webhook DB record save failed for Order ID: ${orderId} | Error: ${dbErr.message}`);
+      }
+
+      console.error(`Webhook FAILED for Order ID: ${orderId} | Attempt: ${attempt}/${maxRetries} | Error: ${error.message}`, {
+        url: config.callbackUrl,
+        statusCode: error.response?.status || "NO_RESPONSE",
+        responseData: error.response?.data || null,
+        code: error.code || null,
       });
 
-      console.error("Webhook delivery failed attempt:", attempt);
-
-      if (attempt === maxRetries) {
+      // Don't retry on 4xx errors - these are permanent failures
+      const status = error.response?.status;
+      if (status && status >= 400 && status < 500) {
+        console.error(`Webhook FAILED for Order ID: ${orderId} | Skipping retries - got ${status} (client error, retry won't help)`);
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (attempt === maxRetries) {
+        console.error(`Webhook EXHAUSTED all ${maxRetries} retries for Order ID: ${orderId} | URL: ${config.callbackUrl}`);
+        return;
+      }
+
       attempt++;
+      console.log(`Retry attempt ${attempt} for Order ID: ${orderId}`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
   }
