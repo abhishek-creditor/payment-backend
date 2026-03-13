@@ -1,5 +1,19 @@
 const subscriptionDAO = require("../../dao/subscription.dao");
 
+const tilledStatusMap = {
+    active: "ACTIVE",
+    pending: "PENDING",
+    paused: "INACTIVE",
+    canceled: "CANCELLED",
+    past_due: "PAST_DUE",
+    trialing: "TRIAL",
+};
+
+function mapStatus(tilledStatus) {
+    if (!tilledStatus) return "ACTIVE";
+    return tilledStatusMap[tilledStatus.toLowerCase()] || "ACTIVE";
+}
+
 exports.handleSubscriptionCreated = async (event) => {
     const subscription = event.data;
     const metadata = subscription.metadata || {};
@@ -11,7 +25,7 @@ exports.handleSubscriptionCreated = async (event) => {
             productUserId,
             planId,
             tilledSubscriptionId: subscription.id,
-            status: subscription.status.toUpperCase(), // Assuming Tilled uses active/canceled
+            status: mapStatus(subscription.status),
             currentPeriodStart: new Date(subscription.current_period_start * 1000),
             currentPeriodEnd: new Date(subscription.current_period_end * 1000),
             cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
@@ -23,7 +37,7 @@ exports.handleSubscriptionCreated = async (event) => {
 
 exports.handleSubscriptionUpdated = async (event) => {
     const subscription = event.data;
-    await subscriptionDAO.updateSubscriptionByTilledId(null, subscription.id, subscription.status.toUpperCase(), {
+    await subscriptionDAO.updateSubscriptionByTilledId(null, subscription.id, mapStatus(subscription.status), {
         currentPeriodStart: new Date(subscription.current_period_start * 1000),
         currentPeriodEnd: new Date(subscription.current_period_end * 1000),
         cancelAtPeriodEnd: subscription.cancel_at_period_end || false,

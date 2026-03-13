@@ -36,11 +36,8 @@ router.post(
  */
 router.post(
   "/confirm",
-  // The frontend needs a way to call this. If the frontend payment page has the key,
-  // we can keep requirePermissions.
-  requirePermissions(["charge"]), 
-  exports.validateConfirmPayment = require("../middleware/validatePaymentRequest").validateConfirmPayment,
-  idempotency,
+  requirePermissions(["charge"]),
+  require("../middleware/validatePaymentRequest").validateConfirmPayment,
   controller.confirmPayment
 );
 

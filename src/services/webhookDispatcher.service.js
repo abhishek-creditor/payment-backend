@@ -7,6 +7,9 @@ function mapEvent(triggerEvent) {
     "payment_intent.succeeded": "PAYMENT_SUCCEEDED",
     "payment_intent.payment_failed": "PAYMENT_FAILED",
     "payment_intent.canceled": "PAYMENT_CANCELLED",
+    "subscription.created": "SUBSCRIPTION_CREATED",
+    "subscription.updated": "SUBSCRIPTION_UPDATED",
+    "subscription.canceled": "SUBSCRIPTION_CANCELLED",
   };
 
   return mapping[triggerEvent] || triggerEvent;
@@ -20,6 +23,13 @@ async function dispatch(orderId, triggerEvent) {
     include: {
       product: true,
       payments: true,
+      subscription: true,
+      productUser: {
+        select: {
+          externalUserId: true,
+          email: true,
+        },
+      },
     },
   });
 
@@ -57,6 +67,20 @@ async function dispatch(orderId, triggerEvent) {
     status: payment.status,
     timestamp: new Date().toISOString(),
   };
+
+  // Enrich payload with subscription data if available
+  if (order.subscription) {
+    payload.subscriptionId = order.subscription.id;
+    payload.tilledSubscriptionId = order.subscription.tilledSubscriptionId;
+    payload.subscription_status = order.subscription.status;
+    payload.planId = order.planId;
+  }
+
+  // Include user identifiers
+  if (order.productUser) {
+    payload.externalUserId = order.productUser.externalUserId;
+    payload.email = order.productUser.email;
+  }
 
   console.log("Payload being sent to webhook:", payload);
 

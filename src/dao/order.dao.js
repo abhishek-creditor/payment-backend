@@ -113,11 +113,14 @@ class OrderDAO {
         includeOptions.productUser !== false
           ? {
             select: {
+              id: true,
               externalUserId: true,
               email: true,
+              tilledCustomerId: true,
             },
           }
           : false,
+      plan: includeOptions.plan === true,
     };
 
     return client.order.findUnique({
@@ -151,11 +154,14 @@ class OrderDAO {
         includeOptions.productUser !== false
           ? {
             select: {
+              id: true,
               externalUserId: true,
               email: true,
+              tilledCustomerId: true,
             },
           }
           : false,
+      plan: includeOptions.plan === true,
     };
 
     return client.order.findFirst({

@@ -46,12 +46,13 @@ exports.createPayment = async (req, res) => {
  */
 exports.confirmPayment = async (req, res) => {
   try {
-    const { orderId, payment_method_id } = req.body;
+    const { orderId, payment_method_id, tilledAccountId } = req.body;
     
     const result = await service.confirmSubscriptionPayment(
       req.productId,
       orderId,
       payment_method_id,
+      tilledAccountId,
       {
         idempotencyKey: req.idempotencyKey,
       }
