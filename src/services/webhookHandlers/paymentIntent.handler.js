@@ -64,13 +64,12 @@ exports.handlePaymentIntentSucceeded = async (event) => {
     return;
   }
 
-    // Update payment status + store payment_method_id
-    await prisma.$transaction(async (tx) => {
-        await paymentDAO.updatePayment(tx, payment.id, {
-            status: "SUCCEEDED",
-            rawResponse: paymentIntent,
-            tilledPaymentMethodId: paymentMethodId,
-        });
+  // Update payment status + store payment_method_id
+  await prisma.$transaction(async (tx) => {
+    await paymentDAO.updatePayment(tx, payment.id, {
+      status: "SUCCEEDED",
+      rawResponse: paymentIntent,
+    });
 
     await orderDAO.updateOrder(tx, payment.orderId, {
       status: "PAID",
@@ -80,11 +79,11 @@ exports.handlePaymentIntentSucceeded = async (event) => {
   });
 
   console.log("[Webhook Idempotency Update]", payment.orderId);
-  await webhookDispatcher.dispatch(payment.orderId, event.type);
+  await webhookDispatcher.dispatch(payment.orderId, event.type, event.id);
   console.log(`Successfully updated order ${payment.orderId} to PAID.`);
 
-    // Webhook no longer auto-creates subscriptions since the new
-    // Tilled.js flow handles this synchronously at the /confirm endpoint.
+  // Webhook no longer auto-creates subscriptions since the new
+  // Tilled.js flow handles this synchronously at the /confirm endpoint.
 
 };
 
@@ -114,7 +113,7 @@ exports.handlePaymentIntentFailed = async (event) => {
     await updateIdempotencyStatus(tx, payment, IDEMPOTENCY_STATUS.FAILED);
   });
 
-  await webhookDispatcher.dispatch(payment.orderId, event.type);
+  await webhookDispatcher.dispatch(payment.orderId, event.type, event.id);
 
   console.log(`Successfully updated order ${payment.orderId} to FAILED.`);
 };
@@ -146,7 +145,7 @@ exports.handlePaymentIntentCanceled = async (event) => {
     await updateIdempotencyStatus(tx, payment, IDEMPOTENCY_STATUS.CANCELLED);
   });
 
-  await webhookDispatcher.dispatch(payment.orderId, event.type);
+  await webhookDispatcher.dispatch(payment.orderId, event.type, event.id);
 
   console.log(`Successfully CANCELLED order ${payment.orderId}.`);
 };
