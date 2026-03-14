@@ -1,7 +1,6 @@
 const paymentDAO = require("../../dao/payment.dao");
 const orderDAO = require("../../dao/order.dao");
 const prisma = require("../../config/prismaClient");
-const subscriptionService = require("../subscriptions.service");
 
 const webhookDispatcher = require("../webhookDispatcher.service"); // trigger webhooks on payment status change
 
