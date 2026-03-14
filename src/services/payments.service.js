@@ -644,12 +644,9 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
 
     console.log(`[Step 4] ✅ Database transaction committed successfully`);
 
-    // 5. Dispatch Webhook (fire-and-forget — don't block the response)
-    console.log(`[Step 5] Dispatching subscription.created webhook (non-blocking)...`);
-    const webhookDispatcher = require("./webhookDispatcher.service");
-    webhookDispatcher.dispatch(order.id, "subscription.created").catch(err => {
-      console.error("[Step 5] ❌ Webhook dispatch failed (non-blocking):", err.message);
-    });
+    // 5. Webhook will be dispatched asynchronously by Tilled webhooks
+    // (see src/services/webhookHandlers/subscription.handler.js)
+    console.log(`[Step 5] Awaiting Tilled webhook for subscription.created dispatch...`);
 
     console.log(`========== ✅ SUBSCRIPTION CONFIRMED SUCCESSFULLY ==========\n`);
 
