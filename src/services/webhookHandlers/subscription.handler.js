@@ -2,7 +2,7 @@ const subscriptionDAO = require("../../dao/subscription.dao");
 
 const tilledStatusMap = {
     active: "ACTIVE",
-    pending: "PENDING",
+    pending: "ACTIVE",  // Maps Tilled "pending" to Prisma "ACTIVE"
     paused: "INACTIVE",
     canceled: "CANCELLED",
     past_due: "PAST_DUE",

@@ -136,6 +136,10 @@ class TilledService {
         return await this._makeRequest('/subscriptions', 'POST', subscriptionData, tilledAccountId);
     }
 
+    static async getPaymentMethod(paymentMethodId, tilledAccountId) {
+        return await this._makeRequest(`/payment-methods/${paymentMethodId}`, 'GET', null, tilledAccountId);
+    }
+
     static async listCustomerPaymentMethods(customerId, tilledAccountId) {
         return await this._makeRequest(`/payment-methods?customer_id=${customerId}&type=card`, 'GET', null, tilledAccountId);
     }
