@@ -1,35 +1,22 @@
 const productPlanDao = require("../dao/productPlan.dao");
 const productPlanService = require("../services/productPlan.service");
-const EBOOK_PRODUCT_ID =
-  process.env.EBOOK_PRODUCT_ID || "5d08e409-3dc6-4584-82ea-5e29af446144";
 
 exports.createPlan = async (req, res) => {
   try {
-
     const { productId } = req.body;
     console.log("Creating plan for productId:", productId);
-    // Ebook Flow
-    if (productId === EBOOK_PRODUCT_ID) {
-      const ebook = await productPlanService.createPlanService(req.body);
 
-      return res.status(201).json({
-        success: true,
-        planId: ebook.id,
-        productId: ebook.productId,
-        bookId: ebook.bookId,
-      });
-    }
+    // Delegate entirely to service layer (Strategy Routing)
+    const result = await productPlanService.createPlanService(req.body);
 
-    // Default Flow (Non Ebook)
-    const plan = await productPlanDao.createPlan(req.body);
-
+    // Standardized JSON response
     res.status(201).json({
       success: true,
-      data: plan,
+      data: result,
     });
-
   } catch (error) {
-    res.status(500).json({
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({
       success: false,
       message: error.message,
     });
