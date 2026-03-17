@@ -3,7 +3,6 @@ agent any
 
 environment {
     EC2_USER = "ubuntu"
-    BASTION_IP = "54.209.68.124"
     PRIVATE_IP = "10.0.4.146"
     APP_DIR  = "/var/www/payment-backend/payment-backend"
     BRANCH   = "main"
@@ -25,22 +24,22 @@ stages {
         }
     }
 
-    stage('Deploy via Bastion') {
+    stage('Deploy to Private EC2') {
         steps {
-            echo "Deploying to Private EC2 via Bastion..."
+            echo "Deploying directly to Private EC2..."
 
             withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
-                sh """
-                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no -J ${EC2_USER}@${BASTION_IP} ${EC2_USER}@${PRIVATE_IP} '
+                sh '''
+                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${PRIVATE_IP} "
                         cd ${APP_DIR} &&
                         git fetch --all &&
                         git reset --hard origin/${BRANCH} &&
                         npm install &&
                         npx prisma generate &&
-                        npm run build || echo "No build step" &&
+                        npm run build || echo 'No build step' &&
                         pm2 restart payment-backend || pm2 start src/index.js --name payment-backend
-                    '
-                """
+                    "
+                '''
             }
         }
     }
