@@ -5,7 +5,6 @@ agent any
 environment {
     EC2_USER = "ubuntu"
     EC2_HOST = "3.212.62.124"
-    EC2_KEY  = credentials('ec2-ssh-key')
     APP_DIR  = "/var/www/payment-backend/payment-backend"
     BRANCH   = "main"
 }
