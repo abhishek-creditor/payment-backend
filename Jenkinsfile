@@ -1,9 +1,11 @@
 pipeline {
 agent any
-    
+
+```
 environment {
     EC2_USER = "ubuntu"
-    EC2_HOST = "3.212.62.124"
+    BASTION_IP = "54.209.68.124"
+    PRIVATE_IP = "10.0.4.146"
     APP_DIR  = "/var/www/payment-backend/payment-backend"
     BRANCH   = "main"
 }
@@ -24,13 +26,13 @@ stages {
         }
     }
 
-    stage('Deploy to EC2') {
+    stage('Deploy via Bastion') {
         steps {
-            echo "Deploying to EC2..."
+            echo "Deploying to Private EC2 via Bastion..."
 
             withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                 sh """
-                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
+                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no -J ${EC2_USER}@${BASTION_IP} ${EC2_USER}@${PRIVATE_IP} '
                         cd ${APP_DIR} &&
                         git fetch --all &&
                         git reset --hard origin/${BRANCH} &&
@@ -53,5 +55,6 @@ post {
         echo "Deployment failed!"
     }
 }
+```
 
 }
