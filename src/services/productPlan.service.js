@@ -50,7 +50,7 @@ async function createEbookPlan(data) {
 
   const billingType = (data.billingType || "ONE_TIME").toUpperCase();
 
-  // Trim name
+  // Trim name remove extra spaces. 
   if (typeof name === "string") {
     name = name.trim();
   }
@@ -75,7 +75,7 @@ async function createEbookPlan(data) {
     throw err;
   }
 
-  // Clean metadata
+  // Clean metadata remove null and undefine data in metadata
   const cleanMetadata = {};
   for (const key in metadata) {
     if (metadata[key] !== undefined && metadata[key] !== null) {
@@ -90,7 +90,7 @@ async function createEbookPlan(data) {
   if (billingType === "RECURRING") {
     const validIntervals = ["DAY", "WEEK", "MONTH", "YEAR"];
 
-    const normalizedInterval = interval ? interval.toUpperCase() : null;
+    const normalizedInterval = interval ? interval.toUpperCase() : null; // convert interval month -> MONTH uppercase
 
     if (!normalizedInterval || !validIntervals.includes(normalizedInterval)) {
       const err = new Error(
@@ -108,13 +108,14 @@ async function createEbookPlan(data) {
       throw err;
     }
   } else {
-    // Purchase logic
+    // check Purchase logic -> bookId is required inside metadata
     if (!bookId) {
       const err = new Error("bookId is required inside metadata");
       err.statusCode = 400;
       throw err;
     }
 
+    // check book is already exist or not 
     const existingBook = await productPlanDao.findPlanByBookId(bookId);
 
     if (existingBook) {
