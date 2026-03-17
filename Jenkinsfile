@@ -1,7 +1,6 @@
 pipeline {
 agent any
-
-```
+    
 environment {
     EC2_USER = "ubuntu"
     EC2_HOST = "3.212.62.124"
@@ -54,6 +53,5 @@ post {
         echo "Deployment failed!"
     }
 }
-```
 
 }
