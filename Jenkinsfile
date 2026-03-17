@@ -1,7 +1,6 @@
 pipeline {
 agent any
 
-```
 environment {
     EC2_USER = "ubuntu"
     BASTION_IP = "54.209.68.124"
@@ -55,6 +54,5 @@ post {
         echo "Deployment failed!"
     }
 }
-```
 
 }
