@@ -19,19 +19,16 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                sh 'npm install'
-            }
-        }
-
-        stage('Build') {
-            steps {
-                sh 'npm run build || echo "No build step"'
+                sh 'npm install && npm run prisma:generate'
             }
         }
 
         stage('Start Server') {
             steps {
-                sh 'pm2 restart payment-backend || pm2 start src/index.js --name payment-backend'
+                sh '''
+                pm2 delete payment-backend || true
+                pm2 start src/index.js --name payment-backend
+                '''
             }
         }
     }
