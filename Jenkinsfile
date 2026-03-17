@@ -3,14 +3,12 @@ pipeline {
 
     stages {
 
-
-          stage('Clean Workspace') {
+        stage('Clean Workspace') {
             steps {
                 deleteDir()
             }
         }
 
-         
         stage('Clone Repository') {
             steps {
                 git branch: 'main',
@@ -22,7 +20,6 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh 'npm install'
-                sh 'npx prisma generate'
             }
         }
 
