@@ -33,12 +33,11 @@ async function createPlanService(data) {
   // Default Flow
   return await productPlanDao.createPlan(data);
 }
-
 // Ebook Specific Business Logic (Step 4 & 5)
 async function createEbookPlan(data) {
   console.log("Creating Ebook Plan for:", data.productId);
 
-  const {
+  let {
     productId,
     name,
     description,
@@ -49,28 +48,80 @@ async function createEbookPlan(data) {
     intervalCount,
   } = data;
 
-  if (!name || price === undefined || price === null || !metadata || typeof metadata !== "object") {
-    const err = new Error("name, price and metadata are required for Ebook plan");
+  const billingType = (data.billingType || "ONE_TIME").toUpperCase();
+
+  // Trim name
+  if (typeof name === "string") {
+    name = name.trim();
+  }
+
+  // Basic validation
+  if (!name || price === undefined || price === null) {
+    const err = new Error("name and price are required for Ebook plan");
     err.statusCode = 400;
     throw err;
   }
 
-  if (!metadata.bookId) {
-    const err = new Error("bookId is required inside metadata");
+  if (typeof price !== "number" || price < 0) {
+    const err = new Error("price must be a valid non-negative number");
     err.statusCode = 400;
     throw err;
   }
+
+  // metadata validation (no array allowed)
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    const err = new Error("metadata must be a valid object");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Clean metadata
+  const cleanMetadata = {};
+  for (const key in metadata) {
+    if (metadata[key] !== undefined && metadata[key] !== null) {
+      cleanMetadata[key] = metadata[key];
+    }
+  }
+  metadata = cleanMetadata;
 
   const bookId = metadata.bookId;
 
-  // Step 4: Ebook-Specific Validation
-  // Check if bookId already exists
-  const existingBook = await productPlanDao.findPlanByBookId(bookId);
+  // Subscription logic
+  if (billingType === "RECURRING") {
+    const validIntervals = ["DAY", "WEEK", "MONTH", "YEAR"];
 
-  if (existingBook) {
-    const err = new Error("BookId already exists");
-    err.statusCode = 400;
-    throw err;
+    const normalizedInterval = interval ? interval.toUpperCase() : null;
+
+    if (!normalizedInterval || !validIntervals.includes(normalizedInterval)) {
+      const err = new Error(
+        "valid interval is required for subscription (DAY, WEEK, MONTH, YEAR)"
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+
+    interval = normalizedInterval;
+
+    if (bookId !== undefined) {
+      const err = new Error("bookId should not be provided for subscription plans");
+      err.statusCode = 400;
+      throw err;
+    }
+  } else {
+    // Purchase logic
+    if (!bookId) {
+      const err = new Error("bookId is required inside metadata");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const existingBook = await productPlanDao.findPlanByBookId(bookId);
+
+    if (existingBook) {
+      const err = new Error("BookId already exists");
+      err.statusCode = 400;
+      throw err;
+    }
   }
 
   const payload = {
@@ -79,8 +130,9 @@ async function createEbookPlan(data) {
     name,
     description: description || null,
     price,
-    currency: currency || "usd",
-    billingType: "ONE_TIME",
+    // currency normalized
+    currency: (currency || "usd").toLowerCase(),
+    billingType,
     interval: interval || null,
     intervalCount: intervalCount || null,
     metadata,
@@ -90,11 +142,16 @@ async function createEbookPlan(data) {
   // Step 5: Execution
   const createdPlan = await productPlanDao.createPlan(payload);
 
-  return {
+  const response = {
     ...createdPlan,
     type: "EBOOK",
-    bookId,
   };
+
+  if (billingType !== "RECURRING") {
+    response.bookId = bookId;
+  }
+
+  return response;
 }
 
 module.exports = {
