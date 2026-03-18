@@ -75,6 +75,8 @@ async function dispatch(orderId, triggerEvent, eventId) {
       payload.tilledSubscriptionId = order.subscription.tilledSubscriptionId;
       payload.subscription_status = order.subscription.status;
       payload.planId = order.planId;
+      payload.currentPeriodStart = order.subscription.currentPeriodStart;
+      payload.currentPeriodEnd = order.subscription.currentPeriodEnd;
     }
 
     // Include user identifiers
