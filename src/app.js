@@ -16,7 +16,14 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
-app.use(cors()); // Allow all origins by default for now, or configure as needed
+const corsLinks = {
+  origin: ["http://localhost:3000", "http://localhost:5000", "https://payment-config.netlify.app", "https://ebook-backend-deploy.onrender.com"],
+  
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "Idempotency-Key"],
+};
+app.use(cors(corsLinks));
 app.use(morgan("combined"));
 // app.use(auditLogger); // Log all incoming requests for auditing
 
