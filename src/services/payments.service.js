@@ -275,7 +275,7 @@ exports.createPayment = async (productId, data, options = {}) => {
   // This way, if the Tilled call fails, the payment stays INITIATED and
   // can be retried safely.
   // 3. Create or get Tilled Customer
-   let tilledCustomer = null;
+  let tilledCustomer = null;
   const targetAccountId = resolvedAccountId;
   const resolvedFirstName = data.firstname || data.name || data.user_name || resolvedExternalUserId;
   const resolvedLastName = data.lastname || '';
@@ -321,7 +321,44 @@ exports.createPayment = async (productId, data, options = {}) => {
     );
   }
 
-  // 4. Create Tilled Checkout Session
+  // ==========================================
+  // CASE 1: RECURRING SUBSCRIPTION (Custom Tilled.js Page)
+  // ==========================================
+  if (plan.billingType === "RECURRING") {
+    const baseUrl = process.env.FRONTEND_PAYMENT_PAGE_URL || "https://payment-checkoutt.netlify.app";
+    const publishableKey = process.env.TILLED_SANDBOX_PUBLISHABLE_KEY || process.env.TILLED_PUBLISHABLE_KEY;
+
+    // Construct query params so the central page knows what to do
+    const queryParams = new URLSearchParams({
+      orderId: order.id,
+      tilledAccountId: tilledCustomer.account_id || targetAccountId,
+      publishableKey: publishableKey,
+      amount: amount,
+      currency: currency,
+      email: resolvedEmail,
+      customer_name: `${resolvedFirstName} ${resolvedLastName}`.trim()
+      // Success and cancel redirections are handled natively by the frontend checkout page
+    });
+
+    const customCheckoutUrl = `${baseUrl}?${queryParams.toString()}`;
+
+    // Status remains INITIATED until they complete payment on the custom page
+    return {
+      ...order,
+      payments: [
+        {
+          ...payment,
+          status: "INITIATED",
+        },
+      ],
+      duplicate: false,
+      checkoutUrl: customCheckoutUrl,
+    };
+  }
+
+  // ==========================================
+  // CASE 2: ONE-TIME PAYMENT (Tilled Checkout Session)
+  // ==========================================
   const lineItems = [{
     price_data: {
       currency: currency,
@@ -349,10 +386,12 @@ exports.createPayment = async (productId, data, options = {}) => {
     customer_id: tilledCustomer.id,
     line_items: lineItems,
     mode: 'payment',
-    success_url: 'https://payment-pagess.netlify.app/success',
-    cancel_url: 'https://payment-pagess.netlify.app/cancelled',
+    success_url: extraData?.success_url || 'https://payment-pagess.netlify.app/success',
+    cancel_url: extraData?.cancel_url || 'https://payment-pagess.netlify.app/cancelled',
     payment_intent_data: {
       description: `Order ${order.id}`,
+      // we can remove setup_future_usage here since it's for one-off payments
+      // but keeping it doesn't hurt if we want to save the card anyway
       setup_future_usage: "off_session",
       payment_method_types: ["card"],
       metadata: tilledMetadata,
@@ -390,4 +429,273 @@ exports.createPayment = async (productId, data, options = {}) => {
     duplicate: false,
     checkoutUrl: checkoutSession?.url,
   };
+};
+
+/**
+ * CONFIRM SUBSCRIPTION PAYMENT (Tilled.js Flow)
+ * 1. Find Order & ProductUser
+ * 2. Attach payment_method_id to Tilled Customer
+ * 3. Create Subscription in Tilled
+ * 4. Update DB (Order -> COMPLETED, Payment -> SUCCEEDED, Subscription -> ACTIVE)
+ * 5. Dispatch success webhook
+ */
+exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId, tilledAccountId, options = {}) => {
+  const { idempotencyKey } = options;
+
+  console.log(`\n========== CONFIRM SUBSCRIPTION PAYMENT ==========`);
+  console.log(`[Confirm] OrderId: ${orderId}`);
+  console.log(`[Confirm] ProductId: ${productId}`);
+  console.log(`[Confirm] PaymentMethodId: ${paymentMethodId}`);
+  console.log(`[Confirm] TilledAccountId: ${tilledAccountId || 'not provided (using platform)'}`);
+
+  // 1. Fetch Order and Verify it's ready for confirmation
+  console.log(`[Step 1] Fetching order...`);
+  const order = await orderDAO.getOrderById(null, orderId, {
+    productUser: true,
+    payments: true,
+    plan: true,
+  });
+
+  if (!order || order.productId !== productId) {
+    console.error(`[Step 1] ❌ Order not found or productId mismatch. Order exists: ${!!order}`);
+    const error = new Error("Order not found or invalid");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  console.log(`[Step 1] ✅ Order found | Status: ${order.status} | Type: ${order.orderType} | Plan: ${order.plan?.name}`);
+
+  if (order.status === "PAID") {
+    console.log(`[Step 1] ⚠️ Order already PAID — returning early`);
+    return { status: "already_completed", orderId };
+  }
+
+  if (order.orderType !== "SUBSCRIPTION" || order.plan?.billingType !== "RECURRING") {
+    console.error(`[Step 1] ❌ Not a subscription order. Type: ${order.orderType}, BillingType: ${order.plan?.billingType}`);
+    const error = new Error("This order is not a subscription");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const payment = order.payments?.find(p => p.status === "INITIATED" || p.status === "PENDING");
+  if (!payment) {
+    console.error(`[Step 1] ❌ No INITIATED/PENDING payment found. Payments:`, order.payments?.map(p => ({ id: p.id, status: p.status })));
+    const error = new Error("No valid payment found to confirm");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  console.log(`[Step 1] ✅ Payment found | PaymentId: ${payment.id} | Status: ${payment.status}`);
+
+  const { productUser, plan } = order;
+  if (!productUser.tilledCustomerId) {
+    console.error(`[Step 1] ❌ Tilled Customer ID missing for ProductUser: ${productUser.id}`);
+    const error = new Error("Tilled Customer ID missing for user. The checkout initiation failed.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  console.log(`[Step 1] ✅ Customer: ${productUser.tilledCustomerId} | Plan: ${plan.name} ($${plan.price / 100} ${plan.currency} / ${plan.intervalCount} ${plan.interval})`);
+
+  // Determine Tilled Account ID (passed from frontend/created during session)
+  const targetAccountId = tilledAccountId || null;
+
+  try {
+    // 2. Attach Payment Method to Customer
+    console.log(`[Step 2] Attaching payment method ${paymentMethodId} to customer ${productUser.tilledCustomerId}...`);
+    const attachResponse = await TilledService.attachPaymentMethodToCustomer(
+      paymentMethodId,
+      productUser.tilledCustomerId,
+      tilledAccountId
+    );
+
+    if (attachResponse.statusCode >= 400) {
+      const isDuplicateCard = attachResponse.data?.message?.includes('already associated with this customer on another PaymentMethod');
+
+      if (isDuplicateCard) {
+        console.warn(`[Step 2] ⚠️ Card already attached under a different ID. Attempting to find existing PaymentMethod...`);
+
+        // Fetch the new payment method details to get card info
+        const newPmDetails = await TilledService.getPaymentMethod(paymentMethodId, tilledAccountId);
+
+        if (newPmDetails.statusCode === 200 && newPmDetails.data?.card) {
+          const { last4, exp_month, exp_year } = newPmDetails.data.card;
+          console.log(`[Step 2 Debug] New PM Card Details: last4=${last4}, exp_month=${exp_month}, exp_year=${exp_year}`);
+
+          // List customer's saved payment methods
+          const customerPms = await TilledService.listCustomerPaymentMethods(productUser.tilledCustomerId, tilledAccountId);
+
+          if (customerPms.statusCode === 200 && customerPms.data?.items) {
+            // Find the matching saved payment method
+            const existingPm = customerPms.data.items.find(pm =>
+              pm.card && pm.card.last4 == last4 &&
+              pm.card.exp_month == exp_month && pm.card.exp_year == exp_year
+            );
+
+            if (existingPm) {
+              console.log(`[Step 2] ✅ Found existing PaymentMethod: ${existingPm.id}. Using this for subscription.`);
+              paymentMethodId = existingPm.id; // Override the ID to use the existing one
+            } else {
+              console.error(`[Step 2] ❌ Could not find matching existing payment method with last4 ${last4}`);
+              throw new Error(`Failed to find the existing payment method despite duplicate card error.`);
+            }
+          } else {
+            throw new Error(`Failed to fetch customer payment methods to resolve duplicate card error.`);
+          }
+        } else {
+          throw new Error(`Failed to fetch new payment method details to resolve duplicate card error.`);
+        }
+      } else {
+        // Tilled API sometimes returns a 400 if it's already attached to *another* customer, or fails for other reasons.
+        console.error(`[Step 2] ❌ Attach failed (${attachResponse.statusCode}):`, attachResponse.data);
+        const error = new Error(`Failed to attach payment method: ${JSON.stringify(attachResponse.data)}`);
+        error.statusCode = 400;
+        throw error;
+      }
+    } else {
+      console.log(`[Step 2] ✅ Payment method attached successfully`);
+    }
+
+    // 3. Create Subscription in Tilled
+    const intervalUnitMap = { MONTH: "month", YEAR: "year" };
+    const intervalUnit = intervalUnitMap[plan.interval];
+
+    if (!intervalUnit) {
+      console.error(`[Step 3] ❌ Unsupported billing interval: ${plan.interval}`);
+      throw new Error(`Unsupported billing interval: ${plan.interval}`);
+    }
+
+    const subscriptionData = {
+      billing_cycle_anchor: new Date().toISOString().split('T')[0],
+      currency: plan.currency.toLowerCase(),
+      customer_id: productUser.tilledCustomerId,
+      interval_count: plan.intervalCount,
+      interval_unit: intervalUnit,
+      payment_method_id: paymentMethodId,
+      price: plan.price,
+      metadata: {
+        productId,
+        productUserId: productUser.id,
+        planId: plan.id,
+        orderId: order.id
+      },
+    };
+
+    console.log(`[Step 3] Creating Tilled subscription...`, {
+      customer_id: subscriptionData.customer_id,
+      price: subscriptionData.price,
+      currency: subscriptionData.currency,
+      interval: `${subscriptionData.interval_count} ${subscriptionData.interval_unit}(s)`,
+    });
+
+    const tilledResponse = await TilledService.createSubscription(subscriptionData, tilledAccountId);
+
+    if (tilledResponse.statusCode >= 400) {
+      console.error(`[Step 3] ❌ Tilled subscription creation failed (${tilledResponse.statusCode}):`, tilledResponse.data);
+      const error = new Error(`Tilled Subscription Error: ${JSON.stringify(tilledResponse.data)}`);
+      error.statusCode = tilledResponse.statusCode;
+      throw error;
+    }
+
+    const tilledSubscription = tilledResponse.data;
+    console.log(`[Step 3] ✅ Tilled subscription created | ID: ${tilledSubscription.id} | Status: ${tilledSubscription.status}`);
+
+    // 4. Update Database
+    console.log(`[Step 4] Updating database records in transaction...`);
+    const subscriptionDAO = require("../dao/subscription.dao");
+
+    await prisma.$transaction(async (tx) => {
+      // Update Payment
+      await paymentDAO.updatePayment(tx, payment.id, {
+        status: "SUCCEEDED",
+        tilledPaymentMethodId: paymentMethodId,
+        rawResponse: tilledSubscription,
+      });
+      console.log(`[Step 4]   ✅ Payment ${payment.id} → SUCCEEDED`);
+
+      // Update Order
+      await orderDAO.updateOrder(tx, order.id, {
+        status: "PAID",
+      });
+      console.log(`[Step 4]   ✅ Order ${order.id} → PAID`);
+
+      // Upsert Subscription
+      // Map Tilled status to valid Prisma SubscriptionStatus enum
+      // Valid Prisma values: ACTIVE, INACTIVE, CANCELLED, PAST_DUE, TRIAL
+      const tilledStatusMap = {
+        active: "ACTIVE",
+        pending: "ACTIVE",     // Map Tilled "pending" to ACTIVE
+        paused: "INACTIVE",
+        canceled: "CANCELLED",
+        past_due: "PAST_DUE",
+        trialing: "TRIAL",
+      };
+      const mappedStatus = tilledStatusMap[tilledSubscription.status] || "ACTIVE";
+
+      // Map Tilled response dates (Tilled uses Unix timestamps for current_period_*)
+      const periodStart = tilledSubscription.current_period_start
+        ? new Date(tilledSubscription.current_period_start * 1000)
+        : new Date(tilledSubscription.billing_cycle_anchor || Date.now());
+
+      let periodEnd = tilledSubscription.current_period_end
+        ? new Date(tilledSubscription.current_period_end * 1000)
+        : (tilledSubscription.next_payment_at ? new Date(tilledSubscription.next_payment_at) : null);
+
+      // If periodEnd is same as periodStart or missing, calculate it based on plan interval
+      if (!periodEnd || periodEnd.getTime() <= periodStart.getTime()) {
+        periodEnd = new Date(periodStart);
+        if (plan.interval === "MONTH") {
+          periodEnd.setMonth(periodEnd.getMonth() + (plan.intervalCount || 1));
+        } else if (plan.interval === "YEAR") {
+          periodEnd.setFullYear(periodEnd.getFullYear() + (plan.intervalCount || 1));
+        }
+      }
+
+      const subscription = await subscriptionDAO.upsertSubscription(tx, {
+        productId,
+        productUserId: productUser.id,
+        planId: plan.id,
+        tilledSubscriptionId: tilledSubscription.id,
+        status: mappedStatus,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+        metadata: tilledSubscription,
+      });
+      console.log(`[Step 4]   ✅ Subscription upserted | ID: ${subscription.id} | TilledSubId: ${tilledSubscription.id}`);
+
+      // Link subscription to order
+      await orderDAO.updateOrder(tx, order.id, { subscriptionId: subscription.id });
+      console.log(`[Step 4]   ✅ Subscription linked to order`);
+
+      // Update Idempotency Key Status if provided
+      if (idempotencyKey) {
+        await tx.$executeRaw`
+          UPDATE "IdempotencyKey"
+          SET "status" = CAST('COMPLETED' AS "IdempotencyStatus"), "updatedAt" = NOW(), "responseStatusCode" = 200
+          WHERE "key" = ${idempotencyKey}
+        `;
+        console.log(`[Step 4]   ✅ Idempotency key updated`);
+      }
+    });
+
+    console.log(`[Step 4] ✅ Database transaction committed successfully`);
+
+    // 5. Webhook will be dispatched asynchronously by Tilled webhooks
+    // (see src/services/webhookHandlers/subscription.handler.js)
+    console.log(`[Step 5] Awaiting Tilled webhook for subscription.created dispatch...`);
+
+    console.log(`========== ✅ SUBSCRIPTION CONFIRMED SUCCESSFULLY ==========\n`);
+
+    return {
+      status: "success",
+      subscription_status: tilledSubscription.status || "active",
+      tilledSubscriptionId: tilledSubscription.id
+    };
+
+  } catch (err) {
+    console.error(`========== ❌ SUBSCRIPTION CONFIRMATION FAILED ==========`);
+    console.error(`[Error] ${err.message}`);
+    throw err;
+  }
 };
