@@ -463,6 +463,7 @@ enum BillingInterval {
 
 enum SubscriptionStatus {
   ACTIVE
+  PENDING
   INACTIVE
   CANCELLED
   PAST_DUE
