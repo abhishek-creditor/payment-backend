@@ -44,6 +44,7 @@ async function createEbookPlan(data) {
     price,
     currency,
     metadata,
+    billingType,
     interval,
     intervalCount,
   } = data;
@@ -131,9 +132,8 @@ async function createEbookPlan(data) {
     name,
     description: description || null,
     price,
-    // currency normalized
-    currency: (currency || "usd").toLowerCase(),
-    billingType,
+    currency: currency || "usd",
+    billingType: billingType || "ONE_TIME",
     interval: interval || null,
     intervalCount: intervalCount || null,
     metadata,
