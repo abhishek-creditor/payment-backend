@@ -10,7 +10,8 @@ function buildTilledMetadata(order, product, extraData) {
         author_id: extraData.authorId || null,
         plan_id: extraData.planId || null,
         product_id: product.id,
-        product_name: product.name
+        product_name: product.name,
+        billing_type: extraData.billingType || "ONE_TIME",
     };
 }
 
