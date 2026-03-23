@@ -1,10 +1,10 @@
 const path = require("path");
 const envFile = process.env.NODE_ENV === "production" ? ".env.production" : ".env.development";
 require("dotenv").config({ path: path.resolve(__dirname, "../", envFile) });
+//require("./Cron/idempotencyCron"); 
 
 const prisma = require("./config/prismaClient");
 const app = require("./app");
-
 // Database connectivity check on startup
 async function checkDatabaseConnection() {
   try {
