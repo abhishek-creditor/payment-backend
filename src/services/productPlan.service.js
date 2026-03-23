@@ -44,7 +44,6 @@ async function createEbookPlan(data) {
     price,
     currency,
     metadata,
-    billingType,
     interval,
     intervalCount,
   } = data;
