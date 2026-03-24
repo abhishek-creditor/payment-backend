@@ -41,6 +41,38 @@ exports.createPayment = async (req, res) => {
 };
 
 /**
+ * CONFIRM PAYMENT
+ * POST /api/payments/confirm
+ */
+exports.confirmPayment = async (req, res) => {
+  try {
+    const { orderId, payment_method_id, tilledAccountId } = req.body;
+    
+    const result = await service.confirmSubscriptionPayment(
+      req.productId,
+      orderId,
+      payment_method_id,
+      tilledAccountId,
+      {
+        idempotencyKey: req.idempotencyKey,
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Confirm Payment Error:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to confirm payment",
+    });
+  }
+};
+
+/**
  * GET ALL PAYMENTS
  * GET /api/payments
  */

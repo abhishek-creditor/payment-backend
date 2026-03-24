@@ -7,6 +7,9 @@ function mapEvent(triggerEvent) {
     "payment_intent.succeeded": "PAYMENT_SUCCEEDED",
     "payment_intent.payment_failed": "PAYMENT_FAILED",
     "payment_intent.canceled": "PAYMENT_CANCELLED",
+    "subscription.created": "SUBSCRIPTION_CREATED",
+    "subscription.updated": "SUBSCRIPTION_UPDATED",
+    "subscription.canceled": "SUBSCRIPTION_CANCELLED",
   };
 
   return mapping[triggerEvent] || triggerEvent;
@@ -21,6 +24,13 @@ async function dispatch(orderId, triggerEvent, eventId) {
       include: {
         product: true,
         payments: true,
+        subscription: true,
+        productUser: {
+          select: {
+            externalUserId: true,
+            email: true,
+          },
+        },
       },
     });
 
@@ -54,11 +64,35 @@ async function dispatch(orderId, triggerEvent, eventId) {
     const payload = {
       event: mapEvent(triggerEvent),
       orderId: order.id,
+      tilledPaymentId: payment.tilledPaymentId,
       referenceId: order.referenceId,
       status: payment.status,
-      eventId: eventId, // Added for deduplication on the receiving end
+      amount: order.amount,
+      currency: order.currency,
       timestamp: new Date().toISOString(),
     };
+
+    // Enrich payload with subscription data if available
+    if (order.subscription) {
+      payload.subscriptionId = order.subscription.id;
+      payload.tilledSubscriptionId = order.subscription.tilledSubscriptionId;
+      payload.subscription_status = order.subscription.status;
+      payload.planId = order.planId;
+      payload.currentPeriodStart = order.subscription.currentPeriodStart;
+      payload.currentPeriodEnd = order.subscription.currentPeriodEnd;
+      payload.cancelAtPeriodEnd = order.subscription.cancelAtPeriodEnd;
+    }
+
+    // Include user identifiers
+    if (order.productUser) {
+      payload.externalUserId = order.productUser.externalUserId;
+      payload.email = order.productUser.email;
+    }
+
+    // Pass custom platform metadata (e.g. original planId/planName) back
+    if (order.metadata) {
+      Object.assign(payload, order.metadata);
+    }
 
     console.log(`Webhook payload for Order ID: ${order.id}:`, payload);
 
