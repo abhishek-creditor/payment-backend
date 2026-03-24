@@ -168,6 +168,7 @@ exports.createPayment = async (productId, data, options = {}) => {
       status: "CREATED",
       orderType: plan.billingType === "RECURRING" ? "SUBSCRIPTION" : "ONE_TIME",
       items,
+      metadata: Object.keys(extraData).length > 0 ? extraData : null,
     });
 
     // Race condition guard: if two concurrent requests both passed the

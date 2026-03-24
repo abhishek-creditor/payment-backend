@@ -64,8 +64,11 @@ async function dispatch(orderId, triggerEvent, eventId) {
     const payload = {
       event: mapEvent(triggerEvent),
       orderId: order.id,
+      tilledPaymentId: payment.tilledPaymentId,
       referenceId: order.referenceId,
       status: payment.status,
+      amount: order.amount,
+      currency: order.currency,
       timestamp: new Date().toISOString(),
     };
 
@@ -77,12 +80,18 @@ async function dispatch(orderId, triggerEvent, eventId) {
       payload.planId = order.planId;
       payload.currentPeriodStart = order.subscription.currentPeriodStart;
       payload.currentPeriodEnd = order.subscription.currentPeriodEnd;
+      payload.cancelAtPeriodEnd = order.subscription.cancelAtPeriodEnd;
     }
 
     // Include user identifiers
     if (order.productUser) {
       payload.externalUserId = order.productUser.externalUserId;
       payload.email = order.productUser.email;
+    }
+
+    // Pass custom platform metadata (e.g. original planId/planName) back
+    if (order.metadata) {
+      Object.assign(payload, order.metadata);
     }
 
     console.log(`Webhook payload for Order ID: ${order.id}:`, payload);

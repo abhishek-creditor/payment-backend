@@ -27,6 +27,7 @@ class OrderDAO {
           currency: orderData.currency,
           status: orderData.status || "CREATED",
           orderType: orderData.orderType || "ONE_TIME",
+          metadata: orderData.metadata || null,
           items: {
             create: (orderData.items || []).map((item) => ({
               name: item.name,
