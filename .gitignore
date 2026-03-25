@@ -18,6 +18,7 @@ connectAWS.sh
 .DS_Store
 
 # Squad: ignore runtime state (logs, inbox, sessions)
+.squad
 .squad/orchestration-log/
 .squad/log/
 .squad/decisions/inbox/

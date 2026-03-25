@@ -27,6 +27,7 @@ class OrderDAO {
           currency: orderData.currency,
           status: orderData.status || "CREATED",
           orderType: orderData.orderType || "ONE_TIME",
+          metadata: orderData.metadata || null,
           items: {
             create: (orderData.items || []).map((item) => ({
               name: item.name,
@@ -113,11 +114,14 @@ class OrderDAO {
         includeOptions.productUser !== false
           ? {
             select: {
+              id: true,
               externalUserId: true,
               email: true,
+              tilledCustomerId: true,
             },
           }
           : false,
+      plan: includeOptions.plan === true,
     };
 
     return client.order.findUnique({
@@ -151,11 +155,14 @@ class OrderDAO {
         includeOptions.productUser !== false
           ? {
             select: {
+              id: true,
               externalUserId: true,
               email: true,
+              tilledCustomerId: true,
             },
           }
           : false,
+      plan: includeOptions.plan === true,
     };
 
     return client.order.findFirst({
