@@ -150,6 +150,10 @@ class TilledService {
         }, tilledAccountId);
     }
 
+    static async detachPaymentMethod(paymentMethodId, tilledAccountId) {
+        return await this._makeRequest(`/payment-methods/${paymentMethodId}/detach`, 'PUT', null, tilledAccountId);
+    }
+
     static async createRefund(refundData, tilledAccountId) {
         return await this._makeRequest('/refunds', 'POST', refundData, tilledAccountId);
     }
