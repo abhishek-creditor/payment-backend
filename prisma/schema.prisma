@@ -201,6 +201,7 @@ model Refund {
   tilledRefundId String?      @unique
   amount         Int
   status         RefundStatus
+
   reason         String?
 
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict) // 👈 CHANGE: Prevent deletion if refunds exist
