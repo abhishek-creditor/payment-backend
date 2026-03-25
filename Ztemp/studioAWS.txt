@@ -1,0 +1,10 @@
+Step 1:
+tunnel into the subnet using the below command 
+ssh -i payment.pem -L 5432:private-payment-db.cudsmc82cvxc.us-east-1.rds.amazonaws.com:5432 ubuntu@54.209.68.124
+
+Step 2:
+prepare .env.development by keeping the below database URL
+DATABASE_URL="postgresql://P:@localhost:"
+
+Step 3:
+open a new terminal and run the command npx prisma studio
