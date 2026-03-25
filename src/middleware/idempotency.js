@@ -38,6 +38,7 @@ module.exports = async function idempotency(req, res, next) {
   }
 
   // --- CHECK REFERENCE ID ALREADY EXIST RETURN RESPONSE ALREADY PAID ---
+  console.log("[Idempotency] Checking for existing orders with productId and referenceId...");
   const referenceId = req.body?.referenceId || req.body?.orderId;
 
   if (productId && referenceId) {
