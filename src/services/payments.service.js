@@ -468,7 +468,7 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
 
   if (order.status === "PAID") {
     console.log(`[Step 1] ⚠️ Order already PAID — returning early`);
-    return { status: "already_completed", orderId };
+    return { status: "already_completed", success: true, orderId };
   }
 
   if (order.orderType !== "SUBSCRIPTION" || order.plan?.billingType !== "RECURRING") {
@@ -517,34 +517,70 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
         console.warn(`[Step 2] ⚠️ Card already attached under a different ID. Attempting to find existing PaymentMethod...`);
 
         // Fetch the new payment method details to get card info
-        const newPmDetails = await TilledService.getPaymentMethod(paymentMethodId, tilledAccountId);
+        let newCardInfo = null;
+        try {
+          const newPmDetails = await TilledService.getPaymentMethod(paymentMethodId, tilledAccountId);
+          if (newPmDetails.statusCode === 200 && newPmDetails.data?.card) {
+            newCardInfo = newPmDetails.data.card;
+            console.log(`[Step 2 Debug] New PM Card Details: last4=${newCardInfo.last4}, exp_month=${newCardInfo.exp_month}, exp_year=${newCardInfo.exp_year}`);
+          } else {
+            console.warn(`[Step 2] ⚠️ Could not fetch new PM details (status: ${newPmDetails.statusCode}). Will try matching by listing all PMs.`);
+          }
+        } catch (fetchErr) {
+          console.warn(`[Step 2] ⚠️ Error fetching new PM details: ${fetchErr.message}. Will try listing all PMs.`);
+        }
 
-        if (newPmDetails.statusCode === 200 && newPmDetails.data?.card) {
-          const { last4, exp_month, exp_year } = newPmDetails.data.card;
-          console.log(`[Step 2 Debug] New PM Card Details: last4=${last4}, exp_month=${exp_month}, exp_year=${exp_year}`);
+        // List customer's saved payment methods (with pagination support)
+        const customerPms = await TilledService.listCustomerPaymentMethods(productUser.tilledCustomerId, tilledAccountId);
+        console.log(`[Step 2 Debug] Customer PMs response: status=${customerPms.statusCode}, count=${customerPms.data?.items?.length ?? 0}`);
 
-          // List customer's saved payment methods
-          const customerPms = await TilledService.listCustomerPaymentMethods(productUser.tilledCustomerId, tilledAccountId);
+        if (customerPms.statusCode === 200 && customerPms.data?.items?.length > 0) {
+          const allPms = customerPms.data.items;
 
-          if (customerPms.statusCode === 200 && customerPms.data?.items) {
-            // Find the matching saved payment method
-            const existingPm = customerPms.data.items.find(pm =>
-              pm.card && pm.card.last4 == last4 &&
-              pm.card.exp_month == exp_month && pm.card.exp_year == exp_year
+          // Log all PMs for debugging
+          allPms.forEach(pm => {
+            console.log(`[Step 2 Debug] Existing PM: id=${pm.id}, last4=${pm.card?.last4}, exp=${pm.card?.exp_month}/${pm.card?.exp_year}, status=${pm.status}`);
+          });
+
+          let existingPm = null;
+
+          if (newCardInfo) {
+            const { last4, exp_month, exp_year } = newCardInfo;
+
+            // Try exact match first (last4 + exp_month + exp_year)
+            existingPm = allPms.find(pm =>
+              pm.card && String(pm.card.last4) === String(last4) &&
+              Number(pm.card.exp_month) === Number(exp_month) &&
+              Number(pm.card.exp_year) === Number(exp_year) &&
+              pm.id !== paymentMethodId
             );
 
-            if (existingPm) {
-              console.log(`[Step 2] ✅ Found existing PaymentMethod: ${existingPm.id}. Using this for subscription.`);
-              paymentMethodId = existingPm.id; // Override the ID to use the existing one
-            } else {
-              console.error(`[Step 2] ❌ Could not find matching existing payment method with last4 ${last4}`);
-              throw new Error(`Failed to find the existing payment method despite duplicate card error.`);
+            // Fallback: match by last4 only (in case exp dates differ in format)
+            if (!existingPm) {
+              console.warn(`[Step 2] ⚠️ Exact match failed. Trying last4-only match...`);
+              existingPm = allPms.find(pm =>
+                pm.card && String(pm.card.last4) === String(last4) &&
+                pm.id !== paymentMethodId
+              );
             }
+          }
+
+          // Final fallback: use the most recently created card PM that isn't the one we just tried
+          if (!existingPm) {
+            console.warn(`[Step 2] ⚠️ Card detail match failed. Using most recent existing card PM as fallback.`);
+            existingPm = allPms.find(pm => pm.card && pm.id !== paymentMethodId);
+          }
+
+          if (existingPm) {
+            console.log(`[Step 2] ✅ Found existing PaymentMethod: ${existingPm.id} (last4: ${existingPm.card?.last4}). Using this for subscription.`);
+            paymentMethodId = existingPm.id;
           } else {
-            throw new Error(`Failed to fetch customer payment methods to resolve duplicate card error.`);
+            console.error(`[Step 2] ❌ No usable existing payment method found for customer ${productUser.tilledCustomerId}`);
+            throw new Error(`Failed to find the existing payment method despite duplicate card error.`);
           }
         } else {
-          throw new Error(`Failed to fetch new payment method details to resolve duplicate card error.`);
+          console.error(`[Step 2] ❌ Could not list customer payment methods (status: ${customerPms.statusCode})`);
+          throw new Error(`Failed to fetch customer payment methods to resolve duplicate card error.`);
         }
       } else {
         // Tilled API sometimes returns a 400 if it's already attached to *another* customer, or fails for other reasons.
@@ -600,6 +636,7 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
 
     const tilledSubscription = tilledResponse.data;
     console.log(`[Step 3] ✅ Tilled subscription created | ID: ${tilledSubscription.id} | Status: ${tilledSubscription.status}`);
+    console.log(`[Step 3] 📅 Tilled dates: current_period_start=${tilledSubscription.current_period_start} (${typeof tilledSubscription.current_period_start}), current_period_end=${tilledSubscription.current_period_end} (${typeof tilledSubscription.current_period_end}), next_payment_at=${tilledSubscription.next_payment_at}, billing_cycle_anchor=${tilledSubscription.billing_cycle_anchor}`);
 
     // 4. Update Database
     console.log(`[Step 4] Updating database records in transaction...`);
@@ -633,16 +670,26 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
       };
       const mappedStatus = tilledStatusMap[tilledSubscription.status] || "ACTIVE";
 
-      // Map Tilled response dates (Tilled uses Unix timestamps for current_period_*)
-      const periodStart = tilledSubscription.current_period_start
-        ? new Date(tilledSubscription.current_period_start * 1000)
-        : new Date(tilledSubscription.billing_cycle_anchor || Date.now());
+      // Map Tilled response dates — Tilled may return Unix timestamps (numbers)
+      // or ISO date strings. Handle both formats safely.
+      function safeTilledDate(value, fallback) {
+        if (!value && value !== 0) return fallback || new Date();
+        if (typeof value === "number" && value < 1e12) return new Date(value * 1000);
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? (fallback || new Date()) : d;
+      }
 
-      let periodEnd = tilledSubscription.current_period_end
-        ? new Date(tilledSubscription.current_period_end * 1000)
-        : (tilledSubscription.next_payment_at ? new Date(tilledSubscription.next_payment_at) : null);
+      const periodStart = safeTilledDate(
+        tilledSubscription.current_period_start,
+        safeTilledDate(tilledSubscription.billing_cycle_anchor, new Date())
+      );
 
-      // If periodEnd is same as periodStart or missing, calculate it based on plan interval
+      let periodEnd = safeTilledDate(
+        tilledSubscription.current_period_end,
+        safeTilledDate(tilledSubscription.next_payment_at, null)
+      );
+
+      // If periodEnd is missing or invalid, calculate it based on plan interval
       if (!periodEnd || periodEnd.getTime() <= periodStart.getTime()) {
         periodEnd = new Date(periodStart);
         if (plan.interval === "MONTH") {
@@ -697,6 +744,19 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
   } catch (err) {
     console.error(`========== ❌ SUBSCRIPTION CONFIRMATION FAILED ==========`);
     console.error(`[Error] ${err.message}`);
+
+    // If we successfully attached the payment method but subscription creation failed,
+    // detach the payment method to avoid orphaned attachments
+    if (err.message?.includes('Tilled Subscription Error') || err.message?.includes('Invalid value')) {
+      try {
+        console.log(`[Cleanup] Attempting to detach payment method ${paymentMethodId} after failure...`);
+        await TilledService.detachPaymentMethod(paymentMethodId, tilledAccountId);
+        console.log(`[Cleanup] ✅ Payment method detached successfully`);
+      } catch (detachErr) {
+        console.warn(`[Cleanup] ⚠️ Could not detach payment method: ${detachErr.message}`);
+      }
+    }
+
     throw err;
   }
 };
