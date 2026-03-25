@@ -19,7 +19,8 @@ module.exports = async function idempotency(req, res, next) {
   const key = req.header("Idempotency-Key");
   if (!key) return next();
 
-  const productId = req.productId;
+  const productId = req.productId; // Assuming productId is set in req by previous middleware
+
   console.log(
     "[Idempotency Middleware] Received request with Idempotency-Key: %s and product ID: %s",
     key,
@@ -36,6 +37,31 @@ module.exports = async function idempotency(req, res, next) {
     path = path.slice(0, -1);
   }
 
+  // --- CHECK REFERENCE ID ALREADY EXIST RETURN RESPONSE ALREADY PAID ---
+  const referenceId = req.body?.referenceId || req.body?.orderId;
+
+  if (productId && referenceId) {
+    const existingOrder = await prisma.order.findUnique({
+      where: {
+        productId_referenceId: {
+          productId,
+          referenceId, // product ki order id
+        },
+      },
+      select: { status: true } // Sirf status fetch karna fast hota hai
+    });
+
+    // Check karein agar status already PAID ya SUCCEEDED hai
+    if (existingOrder && existingOrder.status === "PAID") {
+      return res.status(200).json({
+        error: "Order already paid",
+        message: `Order is already paid for this reference ID: ${referenceId}`,
+        status: existingOrder.status
+      });
+    }
+  }
+
+  // --- Request body ka hash banayein taaki same key ke different payloads ko detect kar sakein ---
   const requestHash = crypto
     .createHash("sha256")
     .update(
