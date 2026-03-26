@@ -760,3 +760,53 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
     throw err;
   }
 };
+
+/**
+ * GET ORDER STATUS
+ * Fetches order and its latest payment status by orderId
+ */
+exports.getOrderStatus = async (productId, orderId) => {
+  console.log(`\n========== FETCH ORDER STATUS ==========`);
+  console.log(`[Status] ProductId: ${productId}`);
+  console.log(`[Status] OrderId: ${orderId || 'N/A'}`);
+
+  if (!orderId) {
+    console.error(`[Status] Missing orderId`);
+    const error = new Error("orderId is required");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  console.log(`[Step 1] Fetching order from database...`);
+  const order = await orderDAO.getOrderWithLatestPayment(null, productId, orderId);
+
+  if (!order) {
+    console.error(`[Step 1] Order not found for orderId: ${orderId}`);
+    const error = new Error("Order not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  console.log(`[Step 1] Order found | ID: ${order.id} | Status: ${order.status}`);
+
+  // Also getting the latest payment status if relevant
+  const latestPayment = order.payments && order.payments.length > 0 ? order.payments[0] : null;
+  const paymentStatus = latestPayment ? latestPayment.status : null;
+
+  if (latestPayment) {
+    console.log(`[Step 2] Latest Payment found | ID: ${latestPayment.id} | Status: ${paymentStatus}`);
+  } else {
+    console.log(`[Step 2] No payments associated with this order yet.`);
+  }
+
+  console.log(`========== ORDER STATUS FETCHED SUCCESSFULLY ==========\n`);
+
+  return {
+    orderId: order.id,
+    referenceId: order.referenceId,
+    orderStatus: order.status,
+    paymentStatus: paymentStatus,
+    amount: order.amount,
+    currency: order.currency
+  };
+};

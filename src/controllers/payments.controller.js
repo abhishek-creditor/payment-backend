@@ -1,3 +1,4 @@
+const { log } = require("node:console");
 const service = require("../services/payments.service");
 
 /**
@@ -47,7 +48,7 @@ exports.createPayment = async (req, res) => {
 exports.confirmPayment = async (req, res) => {
   try {
     const { orderId, payment_method_id, tilledAccountId } = req.body;
-    
+
     const result = await service.confirmSubscriptionPayment(
       req.productId,
       orderId,
@@ -68,6 +69,42 @@ exports.confirmPayment = async (req, res) => {
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to confirm payment",
+    });
+  }
+};
+
+// GET ORDER STATUS
+// GET /api/payments/status
+
+exports.getOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.query;
+
+    console.log("---- Fetching Order Status ----");
+    console.log("Query Params:", { orderId });
+
+    if (!orderId) {
+      console.warn("Validation Error: Missing orderId");
+      return res.status(400).json({
+        success: false,
+        message: "orderId is required"
+      });
+    }
+
+    const statusData = await service.getOrderStatus(req.productId, orderId);
+    console.log("Product Id: ", req.productId + " --> " + orderId);
+
+    return res.status(200).json({
+      success: true,
+      data: statusData
+    });
+
+  } catch (error) {
+    console.error("Get Order Status Error:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to fetch order status"
     });
   }
 };
