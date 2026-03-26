@@ -8,31 +8,35 @@ cron.schedule("* * * * *", async () => {
   console.log("Time:", new Date().toISOString());
 
   try {
-    // expiresAt already = createdAt + 50 minutes
     const now = new Date();
-    console.log(" Checking records with expiresAt before:", now);
+    
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+    console.log(" Checking COMPLETED records created before:", twoMinutesAgo);
+    
+    const fiftyMinutesAgo = new Date(now.getTime() - 50 * 60 * 1000);
+    console.log(" Checking IN_PROGRESS records created before:", fiftyMinutesAgo);
 
-    // Count records before deleting
-    const count = await prisma.idempotencyKey.count({
+    const completedResult = await prisma.idempotencyKey.deleteMany({
       where: {
-        expiresAt: {
-          lt: now,
+        status: "COMPLETED",
+        createdAt: {
+          lt: twoMinutesAgo,
         },
       },
     });
 
-    console.log(` Records found for deletion: ${count}`);
+    console.log(`🗑 Deleted COMPLETED records: ${completedResult.count}`);
 
-    // Delete records
-    const result = await prisma.idempotencyKey.deleteMany({
+    const otherResult = await prisma.idempotencyKey.deleteMany({
       where: {
-        expiresAt: {
-          lt: now,
+        status: "IN_PROGRESS",  
+        createdAt: {
+          lt: fiftyMinutesAgo,
         },
       },
     });
 
-    console.log(`🗑 Deleted records: ${result.count}`);
+    console.log(`🗑 Deleted IN_PROGRESS records: ${otherResult.count}`);
     console.log("Idempotency cleanup completed successfully");
 
   } catch (error) {
@@ -41,3 +45,4 @@ cron.schedule("* * * * *", async () => {
 
   console.log("======================================\n");
 });
+

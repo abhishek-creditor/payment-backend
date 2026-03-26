@@ -108,20 +108,15 @@ async function createEbookPlan(data) {
       throw err;
     }
   } else {
-    // check Purchase logic -> bookId is required inside metadata
-    if (!bookId) {
-      const err = new Error("bookId is required inside metadata");
-      err.statusCode = 400;
-      throw err;
-    }
+    // Purchase logic -> bookId optional hai
+    if (bookId) {
+      const existingBook = await productPlanDao.findPlanByBookId(bookId);
 
-    // check book is already exist or not 
-    const existingBook = await productPlanDao.findPlanByBookId(bookId);
-
-    if (existingBook) {
-      const err = new Error("BookId already exists");
-      err.statusCode = 400;
-      throw err;
+      if (existingBook) {
+        const err = new Error("BookId already exists");
+        err.statusCode = 400;
+        throw err;
+      }
     }
   }
 
@@ -148,7 +143,7 @@ async function createEbookPlan(data) {
     type: "EBOOK",
   };
 
-  if (billingType !== "RECURRING") {
+  if (billingType !== "RECURRING" && bookId) {
     response.bookId = bookId;
   }
 
