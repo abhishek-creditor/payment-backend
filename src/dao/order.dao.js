@@ -216,6 +216,32 @@ class OrderDAO {
   }
 
   /**
+   * Get order with its latest payment by order ID
+   * @param {Object} tx - Prisma transaction client (optional)
+   * @param {string} productId - Product ID
+   * @param {string} orderId - Order ID
+   * @returns {Promise<Object|null>} Order
+   */
+  async getOrderWithLatestPayment(tx, productId, orderId) {
+    const client = tx || prisma;
+    
+    if (!orderId) return null;
+
+    return client.order.findFirst({
+      where: {
+        id: orderId,
+        productId
+      },
+      include: {
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
+      }
+    });
+  }
+
+  /**
    * Get orders with pagination and filters
    * @param {Object} tx - Prisma transaction client (optional)
    * @param {Object} filters - Filter options
