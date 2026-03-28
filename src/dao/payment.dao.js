@@ -74,7 +74,8 @@ class PaymentDAO {
 
     return client.payment.findMany({
       where: { orderId },
-      include
+      include,
+      orderBy: { createdAt: "desc" }
     });
   }
 

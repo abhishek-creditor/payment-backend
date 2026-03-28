@@ -46,7 +46,9 @@ class OrderDAO {
               email: true,
             },
           },
-          payments: true,
+          payments: {
+            orderBy: { createdAt: "desc" },
+          },
         },
       });
 
@@ -69,7 +71,9 @@ class OrderDAO {
           },
           include: {
             items: true,
-            payments: true,
+            payments: {
+              orderBy: { createdAt: "desc" },
+            },
             productUser: {
               select: {
                 id: true,
@@ -108,6 +112,7 @@ class OrderDAO {
             include: {
               refunds: includeOptions.refunds !== false,
             },
+            orderBy: { createdAt: "desc" },
           }
           : false,
       productUser:
@@ -149,6 +154,7 @@ class OrderDAO {
             include: {
               refunds: includeOptions.refunds !== false,
             },
+            orderBy: { createdAt: "desc" },
           }
           : false,
       productUser:
@@ -209,6 +215,7 @@ class OrderDAO {
           include: {
             refunds: true,
           },
+          orderBy: { createdAt: "desc" },
         },
         productUser: true,
       },
@@ -280,6 +287,7 @@ class OrderDAO {
             include: {
               refunds: true,
             },
+            orderBy: { createdAt: "desc" },
           },
           productUser: {
             select: {
@@ -321,7 +329,9 @@ class OrderDAO {
       data: { status },
       include: {
         items: true,
-        payments: true,
+        payments: {
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
   }

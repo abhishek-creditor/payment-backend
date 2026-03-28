@@ -85,9 +85,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     // ==========================================
 
     if (existingOrder) {
-      const latestPayment = existingOrder.payments?.sort(
-        (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
-      )[0];
+      const latestPayment = existingOrder.payments?.[0];
 
       if (!latestPayment) {
         const newPayment = await paymentDAO.createPayment(tx, {
@@ -176,9 +174,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     // constraint error in the DAO. The DAO handles this by returning
     // the existing order with __duplicate = true. We must check for it.
     if (order.__duplicate) {
-      const latestPayment = order.payments?.sort(
-        (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
-      )[0];
+      const latestPayment = order.payments?.[0];
 
       // Already paid or still processing → treat as duplicate
       if (latestPayment?.status === "SUCCEEDED" || latestPayment?.status === "PROCESSING") {
@@ -253,9 +249,7 @@ exports.createPayment = async (productId, data, options = {}) => {
   });
 
   if (result.duplicate) {
-    const latestPayment = result.order.payments?.sort(
-      (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
-    )[0];
+    const latestPayment = result.order.payments?.[0];
 
     return {
       ...result.order,
