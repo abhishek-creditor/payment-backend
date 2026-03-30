@@ -49,6 +49,17 @@ exports.confirmPayment = async (req, res) => {
   try {
     const { orderId, payment_method_id, tilledAccountId } = req.body;
 
+    // For delegate keys, the backend needs an explicit product hint so it can
+    // resolve the correct product context (otherwise it falls back to the key's
+    // default productId and can mismatch an order created under another product).
+    const isDelegate = Array.isArray(req.apiKey?.permissions) && req.apiKey.permissions.includes("delegate");
+    if (isDelegate && !req.body?.productId && !req.body?.productCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing productId (or productCode) for delegate API key. Send the order's productId in the confirm request body.",
+      });
+    }
+
     const result = await service.confirmSubscriptionPayment(
       req.productId,
       orderId,

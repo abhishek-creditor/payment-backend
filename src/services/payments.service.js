@@ -332,6 +332,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     // Construct query params so the central page knows what to do
     const queryParams = new URLSearchParams({
       orderId: order.id,
+      productId: order.productId,
       tilledAccountId: tilledCustomer.account_id || targetAccountId,
       publishableKey: publishableKey,
       amount: amount,
