@@ -56,6 +56,7 @@ exports.confirmPayment = async (req, res) => {
       tilledAccountId,
       {
         idempotencyKey: req.idempotencyKey,
+        apiKeyPermissions: req.apiKey?.permissions,
       }
     );
 

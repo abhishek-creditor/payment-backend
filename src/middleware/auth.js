@@ -65,33 +65,49 @@ module.exports = async function authenticate(req, res, next) {
 
     // --- Delegate Mode ---
     // If this key has the "delegate" permission and the request body contains
-    // a productCode, resolve the actual target product from that code.
+    // a productCode OR productId, resolve the actual target product.
     // This allows a shared checkout frontend to authenticate with its own key
-    // while making payments on behalf of a specific product (e.g., "lms").
+    // while making payments on behalf of a specific product.
     let resolvedProductId = key.productId;
     let resolvedProduct = key.product;
 
-    if (key.permissions.includes("delegate") && req.body?.productCode) {
-      const targetProduct = await prisma.product.findUnique({
-        where: { code: req.body.productCode }
-      });
+    if (key.permissions.includes("delegate")) {
+      let targetProduct = null;
 
-      if (!targetProduct) {
-        return res.status(400).json({
-          error: `Invalid productCode: "${req.body.productCode}" does not match any known product`
+      if (req.body?.productCode) {
+        targetProduct = await prisma.product.findUnique({
+          where: { code: req.body.productCode }
         });
+
+        if (!targetProduct) {
+          return res.status(400).json({
+            error: `Invalid productCode: "${req.body.productCode}" does not match any known product`
+          });
+        }
+      } else if (req.body?.productId) {
+        targetProduct = await prisma.product.findUnique({
+          where: { id: req.body.productId }
+        });
+
+        if (!targetProduct) {
+          return res.status(400).json({
+            error: `Invalid productId: "${req.body.productId}" does not match any known product`
+          });
+        }
       }
 
-      if (!targetProduct.isActive) {
-        return res.status(400).json({
-          error: `Product "${req.body.productCode}" is not active`
-        });
+      if (targetProduct) {
+        if (!targetProduct.isActive) {
+          return res.status(400).json({
+            error: `Product "${targetProduct.code}" is not active`
+          });
+        }
+
+        resolvedProductId = targetProduct.id;
+        resolvedProduct = targetProduct;
+
+        console.log(`[Auth] Delegate mode: key=${key.keyPrefix}* acting for product=${targetProduct.code} (${targetProduct.id})`);
       }
-
-      resolvedProductId = targetProduct.id;
-      resolvedProduct = targetProduct;
-
-      console.log(`[Auth] Delegate mode: key=${key.keyPrefix}* acting for product=${targetProduct.code} (${targetProduct.id})`);
     }
 
     // Attach key info to request
