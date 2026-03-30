@@ -53,6 +53,17 @@ router.get(
 );
 
 /**
+ * @route   GET /api/payments/status
+ * @desc    Get order status by orderId
+ * @access  Requires API key with "read" permission
+ */
+router.get(
+  "/status",
+  requirePermissions(["read"]),
+  controller.getOrderStatus
+);
+
+/**
  * @route   GET /api/payments/:id
  * @desc    Get a specific payment by ID
  * @access  Requires API key with "read" permission
