@@ -116,6 +116,17 @@ module.exports = async function authenticate(req, res, next) {
     req.product = resolvedProduct;
     req.permissions = key.permissions;
 
+    console.log("[Auth] Resolved product context", {
+      keyPrefix: key.keyPrefix,
+      keyProductId: key.productId,
+      resolvedProductId,
+      delegate: key.permissions?.includes("delegate") || false,
+      bodyProductCode: req.body?.productCode || null,
+      bodyProductId: req.body?.productId || null,
+      path: req.path,
+      method: req.method,
+    });
+
     next();
 
   } catch (error) {

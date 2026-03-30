@@ -57,6 +57,7 @@ exports.confirmPayment = async (req, res) => {
       {
         idempotencyKey: req.idempotencyKey,
         apiKeyPermissions: req.apiKey?.permissions,
+        apiKeyPrefix: req.apiKey?.keyPrefix,
       }
     );
 

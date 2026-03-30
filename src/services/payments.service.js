@@ -441,7 +441,8 @@ exports.createPayment = async (productId, data, options = {}) => {
  * 5. Dispatch success webhook
  */
 exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId, tilledAccountId, options = {}) => {
-  const { idempotencyKey } = options;
+  const { idempotencyKey, apiKeyPermissions = [], apiKeyPrefix } = options;
+  const isDelegateKey = Array.isArray(apiKeyPermissions) && apiKeyPermissions.includes("delegate");
 
   console.log(`\n========== CONFIRM SUBSCRIPTION PAYMENT ==========`);
   console.log(`[Confirm] OrderId: ${orderId}`);
@@ -458,7 +459,13 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
   });
 
   if (!order || order.productId !== productId) {
-    console.error(`[Step 1] ❌ Order not found or productId mismatch. Order exists: ${!!order}`);
+    console.error(`[Step 1] ❌ Order not found or productId mismatch. Order exists: ${!!order}`, {
+      orderId,
+      reqProductId: productId,
+      orderProductId: order?.productId || null,
+      apiKeyPrefix: apiKeyPrefix || null,
+      delegateKey: isDelegateKey,
+    });
     const error = new Error("Order not found or invalid");
     error.statusCode = 404;
     throw error;
