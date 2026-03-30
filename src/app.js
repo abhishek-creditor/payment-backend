@@ -6,6 +6,7 @@ const prisma = require("./config/prismaClient");
 // const auditLogger = require("./middleware/auditLogger");
 const adminOnly = require("./middleware/admin.middleware");
 const productWebhookRoutes = require("./routes/productWebhook.routes");
+const subscriptionRoutes = require("./routes/subscription.routes");
 
 const app = express();
 
@@ -92,6 +93,7 @@ app.use("/api/webhooks", require("./routes/webhook.routes"));
 // ============================================
 // Payment routes - require API key authentication
 app.use("/api/payments", authenticate, paymentsRoutes);
+app.use("/api/subscriptions", authenticate, subscriptionRoutes);
 
 // ============================================
 // ERROR HANDLING
