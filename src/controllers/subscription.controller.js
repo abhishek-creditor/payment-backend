@@ -2,19 +2,19 @@ const service = require("../services/subscription.service");
 
 exports.cancelSubscription = async (req, res) => {
     try {
-        const { subscriptionId } = req.params;
+        const { tilledSubscriptionId } = req.params;
         const { tilledAccountId } = req.body;
 
-        if (!subscriptionId) {
+        if (!tilledSubscriptionId) {
             return res.status(400).json({
                 success: false,
-                message: "subscriptionId is required"
+                message: "tilledSubscriptionId is required"
             });
         }
 
         const result = await service.cancelSubscription(
             req.productId,
-            subscriptionId,
+            tilledSubscriptionId,
             tilledAccountId || null
         );
 
@@ -34,11 +34,11 @@ exports.cancelSubscription = async (req, res) => {
 
 exports.getSubscription = async (req, res) => {
     try {
-        const { subscriptionId } = req.params;
+        const { tilledSubscriptionId } = req.params;
 
         const subscription = await service.getSubscriptionStatus(
             req.productId,
-            subscriptionId
+            tilledSubscriptionId
         );
 
         return res.status(200).json({

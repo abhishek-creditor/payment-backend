@@ -3,12 +3,12 @@ const orderDAO = require("../dao/order.dao");
 const TilledService = require("./tilled.service");
 const prisma = require("../config/prismaClient");
 
-exports.cancelSubscription = async (productId, subscriptionId, tilledAccountId) => {
+exports.cancelSubscription = async (productId, tilledSubscriptionId, tilledAccountId) => {
 
     // 1. Find the subscription and verify it belongs to this product
     const subscription = await prisma.subscription.findFirst({
         where: {
-            id: subscriptionId,
+            tilledSubscriptionId: tilledSubscriptionId,
             productId,
             status: { notIn: ["CANCELLED", "INACTIVE"] }
         },
@@ -72,9 +72,9 @@ exports.cancelSubscription = async (productId, subscriptionId, tilledAccountId) 
     };
 };
 
-exports.getSubscriptionStatus = async (productId, subscriptionId) => {
+exports.getSubscriptionStatus = async (productId, tilledSubscriptionId) => {
     const subscription = await prisma.subscription.findFirst({
-        where: { id: subscriptionId, productId },
+        where: { tilledSubscriptionId: tilledSubscriptionId, productId },
         include: { plan: true }
     });
 
