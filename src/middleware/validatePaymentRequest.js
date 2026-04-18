@@ -72,6 +72,14 @@ exports.validateCreatePayment = [
     .trim()
     .notEmpty().withMessage("productPlanId cannot be empty"),
 
+  // COUNTRY (optional — ISO 3166-1 alpha-2, e.g. "IN", "US")
+  body("country")
+    .optional()
+    .isString().withMessage("country must be a string")
+    .trim()
+    .isLength({ min: 2, max: 2 }).withMessage("country must be a 2-letter ISO 3166-1 alpha-2 code")
+    .toUpperCase(),
+
   handleValidation
 ];
 

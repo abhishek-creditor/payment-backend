@@ -84,6 +84,8 @@ app.use("/api/crud",crudOperationRoutes);
 app.use("/api/product-plan", productPlanRoutes);
 // admin crud routes for webhooks - for creating, updating, deleting webhook configs for different products/events
 app.use("/admin/webhooks", productWebhookRoutes);
+// admin crud routes for per-currency plan prices (multi-market pricing)
+app.use("/admin/plans", require("./routes/planPrice.routes"));
 
 // Webhook routes - require raw body but NO API key
 app.use("/api/webhooks", require("./routes/webhook.routes"));

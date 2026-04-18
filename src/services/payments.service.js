@@ -5,6 +5,8 @@ const paymentDAO = require("../dao/payment.dao");
 const refundDAO = require("../dao/refund.dao");
 const TilledService = require("./tilled.service");
 const { buildTilledMetadata } = require("./tilledMetadata.service");
+const { resolveCurrency } = require("../config/countryCurrency");
+const productPlanPriceDAO = require("../dao/productPlanPrice.dao");
 
 // Assume Tilled SDK instance
 
@@ -32,6 +34,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     account_id,
     items: rawItems,
     extraData = {},
+    country,
   } = data;
 
   const resolvedExternalUserId = externalUserId || productUserId;
@@ -57,11 +60,32 @@ exports.createPayment = async (productId, data, options = {}) => {
     console.log("Invalid ProductId or productPlanId", productPlanId);
     throw new Error("Invalid ProductId or productPlanId");
   }
-  if (!plan.price || !plan.currency) {
-    throw new Error("Invalid plan configuration");
+  // --- Country → Currency → Price resolution ---
+  let amount, currency;
+
+  if (country) {
+    // Product backend sent the user's country — resolve to local currency
+    currency = resolveCurrency(country);
+    const planPrice = await productPlanPriceDAO.findPrice(null, plan.id, currency);
+    if (!planPrice) {
+      const error = new Error(
+        `Plan "${plan.name}" is not available in ${currency} (country: ${country})`
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+    amount = planPrice.amount;
+    // planPrice.gateway can be used by the gateway factory for per-currency routing
+    console.log(`[Currency] country=${country} → currency=${currency}, amount=${amount}`);
+  } else {
+    // Legacy fallback — no country sent, use plan's default price/currency
+    if (!plan.price || !plan.currency) {
+      throw new Error("Invalid plan configuration — provide country or ensure plan has default price");
+    }
+    amount = plan.price;
+    currency = plan.currency;
+    console.log(`[Currency] No country provided, using plan default: ${currency}, amount=${amount}`);
   }
-  const amount = plan.price;
-  const currency = plan.currency;
 
   // ---------------------------
   // STEP 1: DB TRANSACTION
