@@ -18,7 +18,7 @@ app.use(express.json({
   }
 }));
 const corsLinks = {
-  origin: ["http://localhost:3000","http://localhost:5173", "http://localhost:9000", "http://localhost:5000","http://52.45.128.241", "https://payment-config.netlify.app", "https://product-plans-data.netlify.app", "https://athena-product-plans.netlify.app", "https://payment-checkoutt.netlify.app", "https://ebook-backend-deploy.onrender.com", "https://creditor-backend-hg94.onrender.com"],
+  origin: ["http://localhost:3000","http://localhost:5173", "http://localhost:9000", "http://localhost:5000","http://52.45.128.241", "https://payment-config.netlify.app", "https://product-plans-data.netlify.app", "https://athena-product-plans.netlify.app", "https://payment-checkoutt.netlify.app", "https://ebook-backend-deploy.onrender.com", "https://creditor-backend-hg94.onrender.com", "www.athenabillings.com"],
   
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 
