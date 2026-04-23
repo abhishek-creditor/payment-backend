@@ -37,6 +37,7 @@ const productPlanDao = {
         : {},
       include: {
         product: true,
+        prices: true,
       },
       orderBy: {
         createdAt: "desc",
@@ -50,6 +51,7 @@ const productPlanDao = {
       where: { id },
       include: {
         product: true,
+        prices: true,
       },
     });
   },

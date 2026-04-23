@@ -520,7 +520,7 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
     throw error;
   }
 
-  console.log(`[Step 1] ✅ Customer: ${productUser.tilledCustomerId} | Plan: ${plan.name} ($${plan.price / 100} ${plan.currency} / ${plan.intervalCount} ${plan.interval})`);
+  console.log(`[Step 1] ✅ Customer: ${productUser.tilledCustomerId} | Plan: ${plan.name} (${order.amount / 100} ${order.currency} / ${plan.intervalCount} ${plan.interval})`);
 
   // Determine Tilled Account ID (passed from frontend/created during session)
   const targetAccountId = tilledAccountId || null;
@@ -626,14 +626,16 @@ exports.confirmSubscriptionPayment = async (productId, orderId, paymentMethodId,
       throw new Error(`Unsupported billing interval: ${plan.interval}`);
     }
 
+    // Use order.amount and order.currency — these were resolved correctly
+    // during createPayment (either from ProductPlanPrice via country, or legacy plan fields).
     const subscriptionData = {
       billing_cycle_anchor: new Date().toISOString().split('T')[0],
-      currency: plan.currency.toLowerCase(),
+      currency: order.currency.toLowerCase(),
       customer_id: productUser.tilledCustomerId,
       interval_count: plan.intervalCount,
       interval_unit: intervalUnit,
       payment_method_id: paymentMethodId,
-      price: plan.price,
+      price: order.amount,
       metadata: {
         productId,
         productUserId: productUser.id,

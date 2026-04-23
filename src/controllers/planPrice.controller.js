@@ -1,5 +1,6 @@
 // controllers/planPrice.controller.js
 const productPlanPriceDAO = require("../dao/productPlanPrice.dao");
+const planPriceService = require("../services/planPrice.service");
 const prisma = require("../config/prismaClient");
 
 /**
@@ -135,5 +136,70 @@ exports.deletePrice = async (req, res) => {
     }
     console.error("Error deleting plan price:", error);
     return res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /admin/plans/supported-currencies
+ * List all supported countries and their mapped currencies.
+ */
+exports.getSupportedCurrencies = async (req, res) => {
+  try {
+    const result = planPriceService.getSupportedCountries();
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Error fetching supported currencies:", error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /admin/plans/:planId/pricing-matrix
+ * Get the full pricing matrix for a plan — shows configured and missing currencies.
+ */
+exports.getPricingMatrix = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const matrix = await planPriceService.getPlanPricingMatrix(planId);
+    return res.status(200).json({
+      success: true,
+      data: matrix,
+    });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ error: error.message });
+  }
+};
+
+/**
+ * GET /admin/plans/:planId/resolve-price?country=IN
+ * Dry-run: resolve what price a user from a given country would pay.
+ */
+exports.resolvePrice = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { country } = req.query;
+
+    if (!country || country.length !== 2) {
+      return res.status(400).json({
+        error: "country query param is required (2-letter ISO 3166-1 alpha-2 code)",
+      });
+    }
+
+    const result = await planPriceService.resolvePlanPrice(planId, country);
+    return res.status(200).json({
+      success: true,
+      data: {
+        country: country.toUpperCase(),
+        ...result,
+        displayAmount: (result.amount / 100).toFixed(2),
+      },
+    });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ error: error.message });
   }
 };
