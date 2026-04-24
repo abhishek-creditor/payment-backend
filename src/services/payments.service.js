@@ -35,6 +35,7 @@ exports.createPayment = async (productId, data, options = {}) => {
     items: rawItems,
     extraData = {},
     country,
+    currency: requestedCurrency,
   } = data;
 
   const resolvedExternalUserId = externalUserId || productUserId;
@@ -60,10 +61,24 @@ exports.createPayment = async (productId, data, options = {}) => {
     console.log("Invalid ProductId or productPlanId", productPlanId);
     throw new Error("Invalid ProductId or productPlanId");
   }
-  // --- Country → Currency → Price resolution ---
+  // --- Currency / Country → Price resolution ---
+  // Priority: explicit `currency` > `country` resolution > legacy plan defaults
   let amount, currency;
 
-  if (country) {
+  if (requestedCurrency) {
+    // Caller specified currency directly — look up price for that currency
+    currency = requestedCurrency.toUpperCase();
+    const planPrice = await productPlanPriceDAO.findPrice(null, plan.id, currency);
+    if (!planPrice) {
+      const error = new Error(
+        `Plan "${plan.name}" is not available in ${currency}`
+      );
+      error.statusCode = 400;
+      throw error;
+    }
+    amount = planPrice.amount;
+    console.log(`[Currency] Explicit currency=${currency}, amount=${amount}`);
+  } else if (country) {
     // Product backend sent the user's country — resolve to local currency
     currency = resolveCurrency(country);
     const planPrice = await productPlanPriceDAO.findPrice(null, plan.id, currency);
@@ -78,13 +93,13 @@ exports.createPayment = async (productId, data, options = {}) => {
     // planPrice.gateway can be used by the gateway factory for per-currency routing
     console.log(`[Currency] country=${country} → currency=${currency}, amount=${amount}`);
   } else {
-    // Legacy fallback — no country sent, use plan's default price/currency
+    // Legacy fallback — no currency/country sent, use plan's default price/currency
     if (!plan.price || !plan.currency) {
-      throw new Error("Invalid plan configuration — provide country or ensure plan has default price");
+      throw new Error("Invalid plan configuration — provide country, currency, or ensure plan has default price");
     }
     amount = plan.price;
     currency = plan.currency;
-    console.log(`[Currency] No country provided, using plan default: ${currency}, amount=${amount}`);
+    console.log(`[Currency] No country/currency provided, using plan default: ${currency}, amount=${amount}`);
   }
 
   // ---------------------------

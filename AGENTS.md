@@ -28,18 +28,19 @@ Three initiatives are in progress. Do not mix them up.
 
 ### Initiative 2 — Multi-currency / country-based pricing (CODE COMPLETE, MIGRATION PENDING)
 
-**Goal:** Allow per-currency pricing per plan, resolved from the user's country code.
+**Goal:** Allow per-currency pricing per plan, resolved from the user's country code or direct currency.
 
 **Completed code:**
 - `ProductPlanPrice` model in `schema.prisma` — one row per currency per plan, with optional `gateway` override
 - `src/config/countryCurrency.js` — static country→currency map (ISO 3166-1 → ISO 4217)
+- `src/utils/currency.js` — currency normalisation utility (`toMinorUnit`, `fromMinorUnit`, `formatAmount`, `isKnownCurrency`) with support for zero-decimal (JPY), two-decimal (USD/INR), and three-decimal (KWD) currencies
 - `src/dao/productPlanPrice.dao.js` — CRUD DAO for ProductPlanPrice (findPrice, listPricesForPlan, createPrice, updatePrice, deletePrice)
-- `src/services/planPrice.service.js` — business logic: `resolvePlanPrice(planId, country)`, `getSupportedCountries()`, `getPlanPricingMatrix(planId)`
-- `src/controllers/planPrice.controller.js` — admin CRUD + supported-currencies + pricing-matrix + resolve-price
+- `src/services/planPrice.service.js` — business logic: `resolvePlanPrice(planId, country)`, `resolvePlanPriceByCurrency(planId, currency)`, `getSupportedCountries()`, `getPlanPricingMatrix(planId)`
+- `src/controllers/planPrice.controller.js` — admin CRUD + supported-currencies + pricing-matrix + resolve-price (supports both `?country=IN` and `?currency=INR`)
 - `src/routes/planPrice.routes.js` — mounted at `/admin/plans` in `app.js`
-- `src/services/payments.service.js` — `createPayment()` accepts `country`, resolves currency via `resolveCurrency()`, looks up `ProductPlanPrice`, falls back to legacy `plan.price`/`plan.currency` when no country sent
+- `src/services/payments.service.js` — `createPayment()` accepts `country` OR `currency` directly. Resolution priority: explicit `currency` > `country` > legacy `plan.price`/`plan.currency` fallback
 - `src/services/payments.service.js` — `confirmSubscriptionPayment()` now uses `order.amount` / `order.currency` instead of hardcoded `plan.price` / `plan.currency`
-- `src/middleware/validatePaymentRequest.js` — `country` field validated (optional, 2-letter, auto-uppercased)
+- `src/middleware/validatePaymentRequest.js` — `country` (2-letter) and `currency` (3-letter) fields validated (both optional, auto-uppercased)
 - `src/dao/productPlan.dao.js` — `getAllPlans()` and `getPlanById()` now include `prices` relation
 
 **Admin APIs:**
@@ -49,7 +50,8 @@ Three initiatives are in progress. Do not mix them up.
 - `PUT  /admin/plans/:planId/prices/:currency` — update a price
 - `DELETE /admin/plans/:planId/prices/:currency` — remove a price
 - `GET  /admin/plans/:planId/pricing-matrix` — full pricing overview (configured + missing currencies)
-- `GET  /admin/plans/:planId/resolve-price?country=IN` — dry-run price resolution
+- `GET  /admin/plans/:planId/resolve-price?country=IN` — dry-run price resolution by country
+- `GET  /admin/plans/:planId/resolve-price?currency=INR` — dry-run price resolution by currency directly
 
 **⚠️ BLOCKER:** Migration has NOT been run. Run `npx prisma migrate dev --name add_product_plan_price` before testing.
 

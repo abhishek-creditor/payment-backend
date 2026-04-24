@@ -2,6 +2,7 @@
 const productPlanPriceDAO = require("../dao/productPlanPrice.dao");
 const planPriceService = require("../services/planPrice.service");
 const prisma = require("../config/prismaClient");
+const { formatAmount } = require("../utils/currency");
 
 /**
  * POST /admin/plans/:planId/prices
@@ -176,26 +177,48 @@ exports.getPricingMatrix = async (req, res) => {
 
 /**
  * GET /admin/plans/:planId/resolve-price?country=IN
- * Dry-run: resolve what price a user from a given country would pay.
+ * GET /admin/plans/:planId/resolve-price?currency=INR
+ * Dry-run: resolve what price would apply.
+ * Accepts either `country` (2-letter ISO 3166-1) or `currency` (3-letter ISO 4217).
+ * If both are provided, `currency` takes priority.
  */
 exports.resolvePrice = async (req, res) => {
   try {
     const { planId } = req.params;
-    const { country } = req.query;
+    const { country, currency } = req.query;
 
-    if (!country || country.length !== 2) {
+    let result;
+    let resolvedVia;
+
+    if (currency) {
+      if (currency.length !== 3) {
+        return res.status(400).json({
+          error: "currency must be a 3-letter ISO 4217 code (e.g. USD, INR)",
+        });
+      }
+      result = await planPriceService.resolvePlanPriceByCurrency(planId, currency);
+      resolvedVia = "currency";
+    } else if (country) {
+      if (country.length !== 2) {
+        return res.status(400).json({
+          error: "country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. US, IN)",
+        });
+      }
+      result = await planPriceService.resolvePlanPrice(planId, country);
+      resolvedVia = "country";
+    } else {
       return res.status(400).json({
-        error: "country query param is required (2-letter ISO 3166-1 alpha-2 code)",
+        error: "Provide either 'country' (2-letter) or 'currency' (3-letter) query param",
       });
     }
 
-    const result = await planPriceService.resolvePlanPrice(planId, country);
     return res.status(200).json({
       success: true,
       data: {
-        country: country.toUpperCase(),
+        ...(country && { country: country.toUpperCase() }),
         ...result,
-        displayAmount: (result.amount / 100).toFixed(2),
+        displayAmount: formatAmount(result.amount, result.currency),
+        resolvedVia,
       },
     });
   } catch (error) {

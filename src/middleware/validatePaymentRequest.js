@@ -73,11 +73,23 @@ exports.validateCreatePayment = [
     .notEmpty().withMessage("productPlanId cannot be empty"),
 
   // COUNTRY (optional — ISO 3166-1 alpha-2, e.g. "IN", "US")
+  // When provided, the system resolves the user's country to a currency
+  // via the country→currency map and looks up the plan price for that currency.
   body("country")
     .optional()
     .isString().withMessage("country must be a string")
     .trim()
     .isLength({ min: 2, max: 2 }).withMessage("country must be a 2-letter ISO 3166-1 alpha-2 code")
+    .toUpperCase(),
+
+  // CURRENCY (optional — ISO 4217, e.g. "INR", "USD", "GBP")
+  // When provided, the system looks up the plan price for this currency directly,
+  // bypassing the country→currency resolution. Takes priority over `country`.
+  body("currency")
+    .optional()
+    .isString().withMessage("currency must be a string")
+    .trim()
+    .isLength({ min: 3, max: 3 }).withMessage("currency must be a 3-letter ISO 4217 code (e.g. USD, INR)")
     .toUpperCase(),
 
   handleValidation

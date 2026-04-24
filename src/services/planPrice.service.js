@@ -3,6 +3,7 @@
 
 const productPlanPriceDAO = require("../dao/productPlanPrice.dao");
 const { resolveCurrency, COUNTRY_CURRENCY_MAP } = require("../config/countryCurrency");
+const { formatAmount, isValidCurrencyFormat } = require("../utils/currency");
 const prisma = require("../config/prismaClient");
 
 /**
@@ -25,6 +26,44 @@ async function resolvePlanPrice(planId, countryCode) {
     const planName = plan?.name || planId;
     const error = new Error(
       `Plan "${planName}" is not available in ${currency} (country: ${countryCode})`
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    amount: planPrice.amount,
+    currency: planPrice.currency,
+    gateway: planPrice.gateway || null,
+  };
+}
+
+/**
+ * Resolve the correct price for a plan given a currency code directly.
+ * Bypasses the country→currency map — for callers who already know the currency.
+ *
+ * @param {string} planId
+ * @param {string} currencyCode - ISO 4217 (e.g. "INR", "USD")
+ * @returns {Promise<{amount: number, currency: string, gateway: string|null}>}
+ */
+async function resolvePlanPriceByCurrency(planId, currencyCode) {
+  if (!currencyCode || !isValidCurrencyFormat(currencyCode)) {
+    const error = new Error("currency must be a valid 3-letter ISO 4217 code");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const currency = currencyCode.toUpperCase();
+  const planPrice = await productPlanPriceDAO.findPrice(null, planId, currency);
+
+  if (!planPrice) {
+    const plan = await prisma.productPlan.findUnique({
+      where: { id: planId },
+      select: { name: true },
+    });
+    const planName = plan?.name || planId;
+    const error = new Error(
+      `Plan "${planName}" does not have a price configured for ${currency}`
     );
     error.statusCode = 400;
     throw error;
@@ -67,6 +106,7 @@ function getSupportedCountries() {
 /**
  * Get a pricing matrix for a plan — shows all currencies and their amounts.
  * Useful for admin dashboards and product integrations.
+ * Uses the currency utility for correct display formatting (handles JPY, KWD, etc.).
  *
  * @param {string} planId
  * @returns {Promise<object>}
@@ -103,7 +143,7 @@ async function getPlanPricingMatrix(planId) {
     prices: prices.map((p) => ({
       currency: p.currency,
       amount: p.amount,
-      displayAmount: (p.amount / 100).toFixed(2),
+      displayAmount: formatAmount(p.amount, p.currency),
       gateway: p.gateway || null,
     })),
     configuredCurrencies,
@@ -114,6 +154,7 @@ async function getPlanPricingMatrix(planId) {
 
 module.exports = {
   resolvePlanPrice,
+  resolvePlanPriceByCurrency,
   getSupportedCountries,
   getPlanPricingMatrix,
 };
