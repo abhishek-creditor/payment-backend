@@ -89,13 +89,13 @@ Three initiatives are in progress. Do not mix them up.
 4. **setTimeout retry loss** — `webhookDispatcher.attemptDelivery()` uses in-memory setTimeout. PM2 restart during retry = attempts lost
 
 ### High
-5. **Rate limit tracker table grows forever** — `deleteOldTrackers()` exists but is never called. No cron cleanup
-6. **Idempotency cron too aggressive** — COMPLETED records deleted after 2 minutes but TTL is configured as 50 minutes. Clients retrying at minute 3 get duplicate orders instead of cached response
-7. **CORS missing `x-admin-secret`** — `allowedHeaders` in `app.js` doesn't include `x-admin-secret`, so browser-based admin calls fail CORS preflight
+5. **[COMPLETED] Rate limit tracker table grows forever** — Fixed by adding `deleteOldTrackers(1 hour ago)` to the idempotency cron.
+6. **[COMPLETED] Idempotency cron too aggressive** — Fixed to use `IDEMPOTENCY_TTL_SECONDS` (default 50m) and `IDEMPOTENCY_IN_PROGRESS_TIMEOUT`.
+7. **[COMPLETED] CORS missing `x-admin-secret`** — Added `x-admin-secret` to `allowedHeaders` in `app.js`.
 8. **Generic CRUD routes unprotected** — `/api/crud` has no auth middleware and unknown purpose
 
 ### Medium
-9. **Canada mapped to USD** — `countryCurrency.js` maps `CA: 'USD'`. Canada's currency is CAD. Intentional or data bug?
+9. **[COMPLETED] Canada mapped to USD** — `countryCurrency.js` now maps `CA: 'CAD'`.
 10. **Subscription cancellation missing tilledAccountId** — `tilledAccountId` from `req.body` can be null, Tilled API call may fail
 11. **Webhook route still hardcoded** — `POST /api/webhooks/tilled` not parameterized as `:gateway`
 
@@ -157,9 +157,6 @@ IDEMPOTENCY_IN_PROGRESS_TIMEOUT=60
 ## Suggested next tasks (in priority order)
 
 1. **Run the ProductPlanPrice migration** — `npx prisma migrate dev --name add_product_plan_price`
-2. **Fix idempotency cron TTL** — use `IDEMPOTENCY_TTL_SECONDS` for COMPLETED cleanup, not hardcoded 2 minutes
-3. **Add rate limit tracker cleanup** — call `deleteOldTrackers(1 hour ago)` from idempotencyCron.js
-4. **Fix order retry currency mismatch** — reject retries where resolved currency differs from order currency
-5. **Add `x-admin-secret` to CORS allowedHeaders** — if admin dashboard is browser-based
-6. **Build gateway abstraction layer** — gateway.interface.js, tilled.gateway.js, gateway.factory.js
-7. **Build RabbitMQ integration** — install amqplib, create rabbitmq.js config, workers
+2. **Fix order retry currency mismatch** — reject retries where resolved currency differs from order currency
+3. **Build gateway abstraction layer** — gateway.interface.js, tilled.gateway.js, gateway.factory.js
+4. **Build RabbitMQ integration** — install amqplib, create rabbitmq.js config, workers

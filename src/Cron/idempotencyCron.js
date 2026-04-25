@@ -1,5 +1,6 @@
 const cron = require("node-cron");
 const prisma = require("../config/prismaClient");
+const rateLimitTrackerDao = require("../dao/rateLimitTracker.dao");
 
 // Run every 1 minute
 cron.schedule("* * * * *", async () => {
@@ -10,17 +11,19 @@ cron.schedule("* * * * *", async () => {
   try {
     const now = new Date();
     
-    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
-    console.log(" Checking COMPLETED records created before:", twoMinutesAgo);
+    const ttlSeconds = parseInt(process.env.IDEMPOTENCY_TTL_SECONDS) || 3000;
+    const ttlAgo = new Date(now.getTime() - ttlSeconds * 1000);
+    console.log(" Checking COMPLETED records created before:", ttlAgo);
     
-    const fiftyMinutesAgo = new Date(now.getTime() - 50 * 60 * 1000);
-    console.log(" Checking IN_PROGRESS records created before:", fiftyMinutesAgo);
+    const inProgressTimeoutSeconds = parseInt(process.env.IDEMPOTENCY_IN_PROGRESS_TIMEOUT) || 60;
+    const timeoutAgo = new Date(now.getTime() - inProgressTimeoutSeconds * 1000);
+    console.log(" Checking IN_PROGRESS records created before:", timeoutAgo);
 
     const completedResult = await prisma.idempotencyKey.deleteMany({
       where: {
         status: "COMPLETED",
         createdAt: {
-          lt: twoMinutesAgo,
+          lt: ttlAgo,
         },
       },
     });
@@ -31,12 +34,17 @@ cron.schedule("* * * * *", async () => {
       where: {
         status: "IN_PROGRESS",  
         createdAt: {
-          lt: fiftyMinutesAgo,
+          lt: timeoutAgo,
         },
       },
     });
 
     console.log(`🗑 Deleted IN_PROGRESS records: ${otherResult.count}`);
+
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    const deletedTrackers = await rateLimitTrackerDao.deleteOldTrackers(null, oneHourAgo);
+    console.log(`🗑 Deleted old RateLimitTrackers: ${deletedTrackers.count}`);
+
     console.log("Idempotency cleanup completed successfully");
 
   } catch (error) {

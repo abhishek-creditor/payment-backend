@@ -5,7 +5,7 @@
 const COUNTRY_CURRENCY_MAP = {
   // North America
   US: 'USD',
-  CA: 'USD',
+  CA: 'CAD',
 
   // India
   IN: 'INR',

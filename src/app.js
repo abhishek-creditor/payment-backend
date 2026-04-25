@@ -22,7 +22,7 @@ const corsLinks = {
   
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 
-  allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "Idempotency-Key"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "Idempotency-Key", "x-admin-secret"],
 };
 app.use(cors(corsLinks));
 app.use(morgan("combined"));
