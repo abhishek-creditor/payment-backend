@@ -9,6 +9,7 @@ node_modules
 # Pem Keys
 payment.pem
 payment-backend.pem
+bastion
 
 # Scripts
 script.sh
