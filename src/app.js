@@ -75,17 +75,15 @@ app.get("/health", async (req, res) => {
 // ============================================
 // ADMIN ROUTES (for managing products & API keys)
 // ============================================
-// TODO: Add admin authentication middleware here in production
-// Example: app.use("/api/keys", adminAuth, apiKeyRoutes);
-// For now, these routes are unprotected - SECURE THESE IN PRODUCTION!
-app.use("/api/products", productsRoutes);
-app.use("/api/keys", apiKeyRoutes);
-app.use("/api/crud",crudOperationRoutes);
-app.use("/api/product-plan", productPlanRoutes);
+// All admin routes require x-admin-secret header
+app.use("/api/products", adminOnly, productsRoutes);
+app.use("/api/keys", adminOnly, apiKeyRoutes);
+app.use("/api/crud", adminOnly, crudOperationRoutes);
+app.use("/api/product-plan", adminOnly, productPlanRoutes);
 // admin crud routes for webhooks - for creating, updating, deleting webhook configs for different products/events
-app.use("/admin/webhooks", productWebhookRoutes);
+app.use("/admin/webhooks", adminOnly, productWebhookRoutes);
 // admin crud routes for per-currency plan prices (multi-market pricing)
-app.use("/admin/plans", require("./routes/planPrice.routes"));
+app.use("/admin/plans", adminOnly, require("./routes/planPrice.routes"));
 
 // Webhook routes - require raw body but NO API key
 app.use("/api/webhooks", require("./routes/webhook.routes"));
