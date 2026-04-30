@@ -1,3 +1,4 @@
+const { log } = require("node:console");
 const service = require("../services/payments.service");
 
 /**
@@ -36,6 +37,87 @@ exports.createPayment = async (req, res) => {
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.message || "Failed to create payment",
+    });
+  }
+};
+
+/**
+ * CONFIRM PAYMENT
+ * POST /api/payments/confirm
+ */
+exports.confirmPayment = async (req, res) => {
+  try {
+    const { orderId, payment_method_id, tilledAccountId } = req.body;
+
+    // For delegate keys, the backend needs an explicit product hint so it can
+    // resolve the correct product context (otherwise it falls back to the key's
+    // default productId and can mismatch an order created under another product).
+    const isDelegate = Array.isArray(req.apiKey?.permissions) && req.apiKey.permissions.includes("delegate");
+    if (isDelegate && !req.body?.productId && !req.body?.productCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing productId (or productCode) for delegate API key. Send the order's productId in the confirm request body.",
+      });
+    }
+
+    const result = await service.confirmSubscriptionPayment(
+      req.productId,
+      orderId,
+      payment_method_id,
+      tilledAccountId,
+      {
+        idempotencyKey: req.idempotencyKey,
+        apiKeyPermissions: req.apiKey?.permissions,
+        apiKeyPrefix: req.apiKey?.keyPrefix,
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Confirm Payment Error:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to confirm payment",
+    });
+  }
+};
+
+// GET ORDER STATUS
+// GET /api/payments/status
+
+exports.getOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.query;
+
+    console.log("---- Fetching Order Status ----");
+    console.log("Query Params:", { orderId });
+
+    if (!orderId) {
+      console.warn("Validation Error: Missing orderId");
+      return res.status(400).json({
+        success: false,
+        message: "orderId is required"
+      });
+    }
+
+    const statusData = await service.getOrderStatus(req.productId, orderId);
+    console.log("Product Id: ", req.productId + " --> " + orderId);
+
+    return res.status(200).json({
+      success: true,
+      data: statusData
+    });
+
+  } catch (error) {
+    console.error("Get Order Status Error:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to fetch order status"
     });
   }
 };

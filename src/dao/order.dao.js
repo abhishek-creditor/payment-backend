@@ -27,6 +27,7 @@ class OrderDAO {
           currency: orderData.currency,
           status: orderData.status || "CREATED",
           orderType: orderData.orderType || "ONE_TIME",
+          metadata: orderData.metadata || null,
           items: {
             create: (orderData.items || []).map((item) => ({
               name: item.name,
@@ -113,11 +114,14 @@ class OrderDAO {
         includeOptions.productUser !== false
           ? {
             select: {
+              id: true,
               externalUserId: true,
               email: true,
+              tilledCustomerId: true,
             },
           }
           : false,
+      plan: includeOptions.plan === true,
     };
 
     return client.order.findUnique({
@@ -151,11 +155,14 @@ class OrderDAO {
         includeOptions.productUser !== false
           ? {
             select: {
+              id: true,
               externalUserId: true,
               email: true,
+              tilledCustomerId: true,
             },
           }
           : false,
+      plan: includeOptions.plan === true,
     };
 
     return client.order.findFirst({
@@ -205,6 +212,32 @@ class OrderDAO {
         },
         productUser: true,
       },
+    });
+  }
+
+  /**
+   * Get order with its latest payment by order ID
+   * @param {Object} tx - Prisma transaction client (optional)
+   * @param {string} productId - Product ID
+   * @param {string} orderId - Order ID
+   * @returns {Promise<Object|null>} Order
+   */
+  async getOrderWithLatestPayment(tx, productId, orderId) {
+    const client = tx || prisma;
+    
+    if (!orderId) return null;
+
+    return client.order.findFirst({
+      where: {
+        id: orderId,
+        productId
+      },
+      include: {
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
+      }
     });
   }
 

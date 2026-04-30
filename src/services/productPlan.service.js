@@ -1,31 +1,43 @@
 const cuid = require("cuid");
 const productPlanDao = require("../dao/productPlan.dao");
-
-const EBOOK_PRODUCT_ID =
-  process.env.EBOOK_PRODUCT_ID || "5d08e409-3dc6-4584-82ea-5e29af446144";
+const prisma = require("../config/prismaClient");
 
 // Create Plan Service
 async function createPlanService(data) {
   const { productId } = data;
 
   if (!productId) {
-    throw new Error("productId is required");
+    const err = new Error("productId is required");
+    err.statusCode = 400;
+    throw err;
   }
 
-  // Ebook Product Logic
-  if (productId === EBOOK_PRODUCT_ID) {
+  // Step 2: Fetch the product code from DB to avoid hardcoded IDs
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { code: true },
+  });
+
+  // Throw 404 if product not found in DB
+  if (!product) {
+    const err = new Error("Product not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Step 3: only ebook specific logic Execute.
+  if (product.code === "ebook") {
     return await createEbookPlan(data);
   }
 
   // Default Flow
   return await productPlanDao.createPlan(data);
 }
-
-// Ebook Specific Business Logic
+// Ebook Specific Business Logic (Step 4 & 5)
 async function createEbookPlan(data) {
   console.log("Creating Ebook Plan for:", data.productId);
 
-  const {
+  let {
     productId,
     name,
     description,
@@ -36,21 +48,76 @@ async function createEbookPlan(data) {
     intervalCount,
   } = data;
 
-  if (!name || !price || !metadata) {
-    throw new Error("name, price and metadata are required for Ebook plan");
+  const billingType = (data.billingType || "ONE_TIME").toUpperCase();
+
+  // Trim name remove extra spaces. 
+  if (typeof name === "string") {
+    name = name.trim();
   }
 
-  if (!metadata.bookId) {
-    throw new Error("bookId is required inside metadata");
+  // Basic validation
+  if (!name || price === undefined || price === null) {
+    const err = new Error("name and price are required for Ebook plan");
+    err.statusCode = 400;
+    throw err;
   }
+
+  if (typeof price !== "number" || price < 0) {
+    const err = new Error("price must be a valid non-negative number");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // metadata validation (no array allowed)
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    const err = new Error("metadata must be a valid object");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Clean metadata remove null and undefine data in metadata
+  const cleanMetadata = {};
+  for (const key in metadata) {
+    if (metadata[key] !== undefined && metadata[key] !== null) {
+      cleanMetadata[key] = metadata[key];
+    }
+  }
+  metadata = cleanMetadata;
 
   const bookId = metadata.bookId;
 
-  // Check if bookId already exists
-  const existingBook = await productPlanDao.findPlanByBookId(bookId);
+  // Subscription logic
+  if (billingType === "RECURRING") {
+    const validIntervals = ["DAY", "WEEK", "MONTH", "YEAR"];
 
-  if (existingBook) {
-    throw new Error("BookId already exists");
+    const normalizedInterval = interval ? interval.toUpperCase() : null; // convert interval month -> MONTH uppercase
+
+    if (!normalizedInterval || !validIntervals.includes(normalizedInterval)) {
+      const err = new Error(
+        "valid interval is required for subscription (DAY, WEEK, MONTH, YEAR)"
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+
+    interval = normalizedInterval;
+
+    if (bookId !== undefined) {
+      const err = new Error("bookId should not be provided for subscription plans");
+      err.statusCode = 400;
+      throw err;
+    }
+  } else {
+    // Purchase logic -> bookId optional hai
+    if (bookId) {
+      const existingBook = await productPlanDao.findPlanByBookId(bookId);
+
+      if (existingBook) {
+        const err = new Error("BookId already exists");
+        err.statusCode = 400;
+        throw err;
+      }
+    }
   }
 
   const payload = {
@@ -59,22 +126,27 @@ async function createEbookPlan(data) {
     name,
     description: description || null,
     price,
-    currency: currency || "USD",
-    billingType: "ONE_TIME",
+    currency: currency || "usd",
+    billingType: billingType || "ONE_TIME",
     interval: interval || null,
     intervalCount: intervalCount || null,
     metadata,
     isActive: true,
   };
 
+  // Step 5: Execution
   const createdPlan = await productPlanDao.createPlan(payload);
 
-  return {
+  const response = {
+    ...createdPlan,
     type: "EBOOK",
-    id: createdPlan.id,
-    productId: createdPlan.productId,
-    bookId,
   };
+
+  if (billingType !== "RECURRING" && bookId) {
+    response.bookId = bookId;
+  }
+
+  return response;
 }
 
 module.exports = {

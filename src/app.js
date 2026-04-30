@@ -6,6 +6,7 @@ const prisma = require("./config/prismaClient");
 // const auditLogger = require("./middleware/auditLogger");
 const adminOnly = require("./middleware/admin.middleware");
 const productWebhookRoutes = require("./routes/productWebhook.routes");
+const subscriptionRoutes = require("./routes/subscription.routes");
 
 const app = express();
 
@@ -16,13 +17,19 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
-app.use(cors()); // Allow all origins by default for now, or configure as needed
+const corsLinks = {
+  origin: ["http://localhost:3000","http://localhost:5173", "http://localhost:9000", "http://localhost:5000","http://52.45.128.241", "https://payment-config.netlify.app", "https://product-plans-data.netlify.app", "https://athena-product-plans.netlify.app", "https://payment-checkoutt.netlify.app", "https://ebook-backend-deploy.onrender.com", "https://creditor-backend-hg94.onrender.com"],
+  
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key", "Idempotency-Key"],
+};
+app.use(cors(corsLinks));
 app.use(morgan("combined"));
 // app.use(auditLogger); // Log all incoming requests for auditing
 
 // Import routes
 const paymentsRoutes = require("./routes/payments.routes");
-const subscriptionsRoutes = require("./routes/subscriptions.routes");
 const apiKeyRoutes = require("./routes/apiKey.routes");
 const productsRoutes = require("./routes/products.routes");
 const productPlanRoutes = require("./routes/productPlan.routes");
@@ -86,7 +93,7 @@ app.use("/api/webhooks", require("./routes/webhook.routes"));
 // ============================================
 // Payment routes - require API key authentication
 app.use("/api/payments", authenticate, paymentsRoutes);
-app.use("/api/subscriptions", authenticate, subscriptionsRoutes);
+app.use("/api/subscriptions", authenticate, subscriptionRoutes);
 
 // ============================================
 // ERROR HANDLING
