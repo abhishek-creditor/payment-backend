@@ -276,6 +276,7 @@ model ProductPlan {
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+   prices        ProductPlanPrice[]
   subscriptions Subscription[]
   orders        Order[]
 
@@ -285,6 +286,23 @@ model ProductPlan {
   @@unique([productId, code])
   @@index([productId])
   @@index([billingType])
+}
+
+model ProductPlanPrice {
+  id       String  @id @default(uuid())
+  planId   String
+  currency String  // ISO 4217: "USD", "INR", "GBP", "EUR"
+  amount   Int     // smallest unit (cents/paise) — set manually per market, NOT converted
+  gateway  String? // optional override — force a specific gateway for this currency
+
+  plan ProductPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([planId, currency]) // one price per currency per plan
+  @@index([planId])
+  @@index([currency])
 }
 
 model Subscription {
