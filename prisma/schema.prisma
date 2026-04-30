@@ -276,6 +276,7 @@ model ProductPlan {
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
+   prices        ProductPlanPrice[]
   subscriptions Subscription[]
   orders        Order[]
   prices        ProductPlanPrice[]
