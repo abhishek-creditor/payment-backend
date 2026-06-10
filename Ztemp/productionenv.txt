@@ -2,4 +2,4 @@ To use production env you have to save env as production before calling the prod
 
 Like it is demonstrated below for the command "npx prisma studio"
 
-env=production npx prisma studio 
+env=prod npx prisma studio 
